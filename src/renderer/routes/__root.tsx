@@ -1,4 +1,5 @@
 import { type RemoteConfig, Theme } from '@shared/types'
+import { AuthProvider } from '@/components/auth/AuthProvider'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import Toasts from '@/components/common/Toasts'
 import ExitFullscreenButton from '@/components/layout/ExitFullscreenButton'
@@ -595,7 +596,9 @@ export const Route = createRootRoute({
           <CssBaseline />
           <NiceModal.Provider>
             <ErrorBoundary>
-              <Root />
+              <AuthProvider>
+                <Root />
+              </AuthProvider>
             </ErrorBoundary>
           </NiceModal.Provider>
         </ThemeProvider>

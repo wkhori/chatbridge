@@ -23,6 +23,12 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
   useEffect(() => {
     if (!manifest || !iframeRef.current) return
 
+    // View-only apps skip bridge setup entirely
+    if (manifest.viewOnly) {
+      setStatus('ready')
+      return
+    }
+
     const cleanups: Array<() => void> = []
 
     appBridgeManager.attachBridge(sessionId, iframeRef.current)

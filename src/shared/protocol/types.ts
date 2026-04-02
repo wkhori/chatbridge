@@ -187,6 +187,7 @@ export const AppManifestSchema = z.object({
   }),
   tools: z.array(ToolSchemaSchema).optional(), // pre-declared tools (optional, app can register at runtime)
   keywords: z.array(z.string()).optional(), // for routing
+  viewOnly: z.boolean().optional(), // skip READY wait — iframe is usable but won't communicate via protocol
 })
 
 export type AppManifest = z.infer<typeof AppManifestSchema>

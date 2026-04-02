@@ -25,12 +25,13 @@ export const WHITEBOARD_MANIFEST: AppManifest = {
   name: 'cre8 Whiteboard',
   version: '1.0.0',
   description:
-    'Interactive infinite canvas whiteboard. Students can draw diagrams, create flowcharts, add shapes and sticky notes, and collaborate visually. AI can see the canvas via screenshots.',
+    'Interactive infinite canvas whiteboard. Students can draw diagrams, create flowcharts, add shapes and sticky notes, and collaborate visually. View-only embed — no AI tool integration.',
   url: 'https://cre8-seven.vercel.app/demo',
   icon: '🎨',
   permissions: ['state_push', 'vision', 'ui_resize'],
   auth: { type: 'none' },
   keywords: ['draw', 'whiteboard', 'diagram', 'sketch', 'canvas', 'flowchart', 'sticky', 'visual', 'cre8'],
+  viewOnly: true,
 }
 
 export const CLASSROOM_MANIFEST: AppManifest = {

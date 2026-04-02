@@ -13,6 +13,7 @@ import {
   IconMessages,
   IconSparkles,
   IconWorldWww,
+  IconShieldCheck,
 } from '@tabler/icons-react'
 import { createFileRoute, Link, Outlet, useCanGoBack, useRouter, useRouterState } from '@tanstack/react-router'
 import clsx from 'clsx'
@@ -88,6 +89,11 @@ const ITEMS = [
     key: 'general',
     label: 'General Settings',
     icon: <IconAdjustmentsHorizontal className="w-full h-full" />,
+  },
+  {
+    key: 'security',
+    label: 'App Security',
+    icon: <IconShieldCheck className="w-full h-full" />,
   },
 ]
 

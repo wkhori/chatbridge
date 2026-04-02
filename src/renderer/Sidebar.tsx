@@ -6,6 +6,7 @@ import {
   IconHelpCircle,
   IconInfoCircle,
   IconLayoutSidebarLeftCollapse,
+  IconLogout,
   IconMessageChatbot,
   IconPhotoPlus,
   IconSettingsFilled,
@@ -14,6 +15,7 @@ import { useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from './components/auth/AuthProvider'
 import Divider from './components/common/Divider'
 import { ScalableIcon } from './components/common/ScalableIcon'
 import ThemeSwitchButton from './components/dev/ThemeSwitchButton'
@@ -35,6 +37,7 @@ import { CHATBOX_BUILD_PLATFORM } from './variables'
 
 export default function Sidebar() {
   const { t } = useTranslation()
+  const { auth, signOut } = useAuth()
   const versionHook = useVersion()
   const language = useLanguage()
   const navigate = useNavigate()
@@ -286,6 +289,16 @@ export default function Sidebar() {
               >
                 <ScalableIcon icon={IconSettingsFilled} size={20} />
               </ActionIcon>
+              {auth && (
+                <ActionIcon
+                  variant="transparent"
+                  color="chatbox-secondary"
+                  size={24}
+                  onClick={signOut}
+                >
+                  <ScalableIcon icon={IconLogout} size={20} />
+                </ActionIcon>
+              )}
 
               {/* <Text
                 c="chatbox-tertiary"
@@ -345,6 +358,17 @@ export default function Sidebar() {
                   label="Dev Tools"
                   leftSection={<ScalableIcon icon={IconCode} size={20} />}
                   onClick={() => navigate({ to: '/dev' })}
+                  variant="light"
+                  p="xs"
+                />
+              )}
+              {auth && (
+                <NavLink
+                  c="chatbox-secondary"
+                  className="rounded"
+                  label={`Sign Out (${auth.name})`}
+                  leftSection={<ScalableIcon icon={IconLogout} size={20} />}
+                  onClick={signOut}
                   variant="light"
                   p="xs"
                 />

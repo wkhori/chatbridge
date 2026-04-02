@@ -3,7 +3,7 @@ import { jsonSchema } from 'ai'
 import type { ToolSet } from 'ai'
 import { z } from 'zod'
 import type { AppManifest, ToolSchema } from '@shared/protocol/types'
-import { AUTO_LAUNCH_TIMEOUT } from '@shared/protocol/types'
+import { AUTO_LAUNCH_TIMEOUT, MICRO_APP_MAX_SIZE } from '@shared/protocol/types'
 import { ChatBridgeError } from '@shared/protocol/errors'
 import type { ActionSuggestion } from '@shared/types'
 import { appBridgeManager } from './manager'
@@ -16,6 +16,8 @@ export interface AppToolsOptions {
   onAppLaunched?: (appId: string, sessionId: string) => void
   /** Called when AI suggests action buttons */
   onActionSuggestions?: (suggestions: ActionSuggestion[]) => void
+  /** Called when AI generates a micro-app widget */
+  onMicroAppGenerated?: (data: { html: string; title: string }) => void
 }
 
 /**
@@ -129,6 +131,30 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
     },
   })
 
+  // 4. generate_micro_app — AI creates interactive widgets mid-conversation
+  const blocklist = [/\beval\s*\(/, /\bnew\s+Function\s*\(/, /\bfetch\s*\(/, /\bXMLHttpRequest\b/, /\bWebSocket\b/, /\bimportScripts\b/]
+  tools['generate_micro_app'] = tool({
+    description:
+      'Generate an interactive micro-app widget. Use for quizzes, visualizers, calculators, or mini-games. Output self-contained HTML/CSS/JS.',
+    parameters: jsonSchema({
+      type: 'object',
+      properties: {
+        html: { type: 'string', description: 'Complete self-contained HTML document with inline CSS and JS. Must work without external dependencies.' },
+        title: { type: 'string', description: 'Short title for the widget' },
+      },
+      required: ['html', 'title'],
+    } as any),
+    execute: async (params: Record<string, unknown>) => {
+      const { html, title } = params as { html: string; title?: string }
+      if (html.length > MICRO_APP_MAX_SIZE) return { error: `HTML exceeds ${MICRO_APP_MAX_SIZE / 1024}KB limit` }
+      for (const p of blocklist) {
+        if (p.test(html)) return { error: `Blocked pattern: ${p.source}` }
+      }
+      opts?.onMicroAppGenerated?.({ html, title: title || 'Interactive Widget' })
+      return { generated: true, title }
+    },
+  })
+
   return tools
 }
 
@@ -158,6 +184,17 @@ export function getAppToolInstructions(): string {
   instructions += '- During a chess game: suggest "Get Hint", "View Status", "Resign"\n'
   instructions += '- After explaining a concept: suggest "Draw on Whiteboard", "Practice with Quiz"\n'
   instructions += 'Each suggestion needs: label (short), toolName (the tool to call), args (tool arguments), and optional icon emoji.\n\n'
+
+  instructions += '### Generative Micro-Apps\n'
+  instructions += 'You can create interactive widgets mid-conversation using **generate_micro_app**.\n'
+  instructions += 'Use it when a student needs:\n'
+  instructions += '- An interactive quiz ("quiz me on state capitals")\n'
+  instructions += '- A visualizer ("show me how fractions work")\n'
+  instructions += '- A calculator or converter ("I need a unit converter")\n'
+  instructions += '- A mini-game ("make a typing practice game")\n\n'
+  instructions += 'Generate COMPLETE self-contained HTML with inline CSS and JS. No external deps.\n'
+  instructions += 'Keep it under 200KB. The widget runs in a sandboxed iframe with no network access.\n'
+  instructions += 'Use the ChatBridge.sendResult(data) bridge to send results back, and ChatBridge.requestResize(height) to adjust height.\n\n'
 
   // Active sessions — respect tier for injection level
   for (const session of activeSessions) {

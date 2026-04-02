@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Chess, type Square } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { ChatBridgeSDK } from '@chatbridge/sdk'
+import {
+  initStockfish,
+  getBestMove,
+  getAnalysis,
+  destroy as destroyStockfish,
+} from './stockfish-worker'
 
 const APP_ID = 'chess'
 const isStandalone = window.self === window.top
@@ -50,8 +56,8 @@ const TOOLS = [
   },
 ]
 
-/** Simple heuristic: score moves and pick the best one with some randomness */
-function pickComputerMove(g: Chess): string | null {
+/** Fallback heuristic when Stockfish is unavailable */
+function pickComputerMoveFallback(g: Chess): string | null {
   const moves = g.moves({ verbose: true })
   if (moves.length === 0) return null
 
@@ -85,6 +91,7 @@ export function ChessApp() {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
   const [legalMoveSquares, setLegalMoveSquares] = useState<Record<string, React.CSSProperties>>({})
   const sdkRef = useRef<ChatBridgeSDK | null>(null)
+  const stockfishReady = useRef(false)
   const gameRef = useRef(game)
   gameRef.current = game
 
@@ -106,27 +113,44 @@ export function ChessApp() {
     }
   }, [])
 
-  /** Make computer respond in standalone mode */
+  /** Make computer respond in standalone mode using Stockfish (with fallback) */
   const makeComputerMove = useCallback((g: Chess) => {
     if (!isStandalone || g.isGameOver()) return
     const computerColor = playerColor === 'white' ? 'b' : 'w'
     if (g.turn() !== computerColor) return
 
-    setTimeout(() => {
-      const move = pickComputerMove(g)
-      if (!move) return
+    const applyMove = (san: string) => {
       try {
-        g.move(move)
+        g.move(san)
         const newGame = new Chess(g.fen())
         setGame(newGame)
         updateStatus(newGame)
-        // Check if game over after computer move
-        if (!newGame.isGameOver()) {
-          // Could chain, but one move is enough
-        }
       } catch {
-        // Shouldn't happen
+        // Shouldn't happen with valid moves
       }
+    }
+
+    setTimeout(async () => {
+      if (stockfishReady.current) {
+        try {
+          const uciMove = await getBestMove(g.fen(), 12)
+          const from = uciMove.slice(0, 2)
+          const to = uciMove.slice(2, 4)
+          const promotion = uciMove[4] || undefined
+          const result = g.move({ from, to, promotion })
+          if (result) {
+            const newGame = new Chess(g.fen())
+            setGame(newGame)
+            updateStatus(newGame)
+            return
+          }
+        } catch {
+          // Fall through to heuristic
+        }
+      }
+      // Fallback to heuristic
+      const move = pickComputerMoveFallback(g)
+      if (move) applyMove(move)
     }, 400)
   }, [playerColor, updateStatus])
 
@@ -207,6 +231,50 @@ export function ChessApp() {
       const currentGame = gameRef.current
       const moves = currentGame.moves({ verbose: true })
       if (moves.length === 0) return { error: 'No legal moves available' }
+
+      if (stockfishReady.current) {
+        try {
+          const analysis = await getAnalysis(currentGame.fen(), 15)
+          const uciMove = analysis.bestMove
+          const from = uciMove.slice(0, 2)
+          const to = uciMove.slice(2, 4)
+          const promotion = uciMove[4] || undefined
+
+          // Convert UCI to SAN by making the move on a copy
+          const copy = new Chess(currentGame.fen())
+          const result = copy.move({ from, to, promotion })
+          if (result) {
+            const evalScore = analysis.score / 100
+            let reason: string
+            if (Math.abs(analysis.score) >= 9000) {
+              const mateIn = analysis.score > 0
+                ? 10000 - analysis.score
+                : -(10000 + analysis.score)
+              reason = `Mate in ${Math.abs(mateIn)} moves`
+            } else if (result.captured) {
+              reason = `Captures ${result.captured} on ${result.to} (eval: ${evalScore > 0 ? '+' : ''}${evalScore.toFixed(1)})`
+            } else if (result.san.includes('+')) {
+              reason = `Gives check (eval: ${evalScore > 0 ? '+' : ''}${evalScore.toFixed(1)})`
+            } else {
+              reason = `Best move by Stockfish analysis (eval: ${evalScore > 0 ? '+' : ''}${evalScore.toFixed(1)})`
+            }
+
+            return {
+              suggestedMove: result.san,
+              from: result.from,
+              to: result.to,
+              evaluation: evalScore,
+              reason,
+              fen: currentGame.fen(),
+              legalMoves: currentGame.moves(),
+            }
+          }
+        } catch {
+          // Fall through to heuristic fallback
+        }
+      }
+
+      // Fallback heuristic
       const scored = moves.map((m) => {
         let score = Math.random() * 0.5
         if (m.captured) score += 3
@@ -250,6 +318,16 @@ export function ChessApp() {
     sdk.sendReady('Chess', '1.0.0')
     sdk.registerTools(TOOLS)
 
+    // Initialize Stockfish engine
+    initStockfish()
+      .then(() => {
+        stockfishReady.current = true
+        console.log('[Chess] Stockfish engine ready')
+      })
+      .catch((err) => {
+        console.warn('[Chess] Stockfish init failed, using heuristic fallback:', err)
+      })
+
     // Check for restored state
     const checkRestore = setInterval(() => {
       const restored = sdk.getRestoredState()
@@ -271,6 +349,7 @@ export function ChessApp() {
     return () => {
       clearInterval(checkRestore)
       sdk.destroy()
+      destroyStockfish()
     }
   }, [])
 

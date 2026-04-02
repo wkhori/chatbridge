@@ -210,11 +210,12 @@ export async function streamText(
   const infoParts: MessageInfoPart[] = []
   const appEmbedParts: Array<{ type: 'app-embed'; appId: string; sessionId: string }> = []
   const actionSuggestionParts: Array<{ type: 'action-suggestions'; suggestions: Array<{ label: string; icon?: string; toolName: string; args: Record<string, unknown> }> }> = []
+  const microAppParts: Array<{ type: 'micro-app'; html: string; title: string; sessionId: string }> = []
   try {
     params.onResultChangeWithCancel({ cancel }) // 这里先传递 cancel 方法
     const onResultChange: OnResultChange = (data) => {
       if (data.contentParts) {
-        result = { ...result, ...data, contentParts: [...infoParts, ...appEmbedParts, ...data.contentParts, ...actionSuggestionParts] }
+        result = { ...result, ...data, contentParts: [...infoParts, ...appEmbedParts, ...microAppParts, ...data.contentParts, ...actionSuggestionParts] }
       } else {
         result = { ...result, ...data }
       }
@@ -346,6 +347,10 @@ export async function streamText(
       },
       onActionSuggestions: (suggestions) => {
         actionSuggestionParts.push({ type: 'action-suggestions', suggestions })
+        onResultChange({ contentParts: [] })
+      },
+      onMicroAppGenerated: (data) => {
+        microAppParts.push({ type: 'micro-app', html: data.html, title: data.title, sessionId: '' })
         onResultChange({ contentParts: [] })
       },
     })
