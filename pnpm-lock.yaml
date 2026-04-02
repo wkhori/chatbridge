@@ -470,6 +470,9 @@ importers:
       emittery:
         specifier: ^1.1.0
         version: 1.2.0
+      evalkit:
+        specifier: ^0.2.0
+        version: 0.2.0
       file-loader:
         specifier: ^6.2.0
         version: 6.2.0(webpack@5.104.1)
@@ -7854,6 +7857,9 @@ packages:
   etag@1.8.1:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
+
+  evalkit@0.2.0:
+    resolution: {integrity: sha512-lV/Ec432bFM+qzLOhvCOtTlHmNj/RRBnlbyau3hBD9bA7Cmr8l4bt5FXncJLoqzzaV9JPpo9lenu9phyx18c2Q==}
 
   event-target-shim@5.0.1:
     resolution: {integrity: sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==}
@@ -22317,6 +22323,8 @@ snapshots:
   esutils@2.0.3: {}
 
   etag@1.8.1: {}
+
+  evalkit@0.2.0: {}
 
   event-target-shim@5.0.1: {}
 
