@@ -6,6 +6,8 @@ import {
   type BridgeMessageType,
   CompletionPayloadSchema,
   ErrorPayloadSchema,
+  HEARTBEAT_INTERVAL,
+  HEARTBEAT_MISS_LIMIT,
   type MessageEnvelope,
   MessageEnvelopeSchema,
   PROTOCOL_ID,
@@ -133,6 +135,7 @@ export class AppBridge {
       const off = this.on('ready', () => {
         clearTimeout(timer)
         off()
+        this.startHeartbeat()
         resolve()
       })
     })
@@ -310,6 +313,18 @@ export class AppBridge {
     for (const listener of this.listeners) {
       listener(event)
     }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.missedHeartbeats = 0
+    this.heartbeatTimer = setInterval(() => {
+      this.missedHeartbeats++
+      if (this.missedHeartbeats >= HEARTBEAT_MISS_LIMIT) {
+        this.emit('heartbeat_timeout', { missedCount: this.missedHeartbeats })
+      }
+      this.sendToPlatform('HEARTBEAT_PING', {})
+    }, HEARTBEAT_INTERVAL)
   }
 
   private stopHeartbeat(): void {

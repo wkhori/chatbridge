@@ -513,10 +513,7 @@ const _Message: FC<Props> = (props) => {
                     title={item.title}
                   />
                 ) : item.type === 'action-suggestions' ? (
-                  <ActionSuggestions
-                    key={`actions-${msg.id}-${index}`}
-                    suggestions={item.suggestions}
-                  />
+                  <ActionSuggestions key={`actions-${msg.id}-${index}`} suggestions={item.suggestions} />
                 ) : item.type === 'micro-app' ? (
                   <MicroAppRenderer
                     key={`micro-${item.sessionId}`}

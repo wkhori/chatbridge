@@ -145,6 +145,29 @@ class AppBridgeManager {
     return bridge.invokeTool(toolName, toolCallId, params)
   }
 
+  /**
+   * Wait for a bridge to become ready for a given appId.
+   * Polls every 100ms until the bridge exists and is in ready/active state.
+   */
+  async waitForBridge(appId: string, timeoutMs: number): Promise<void> {
+    const start = Date.now()
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        const entry = this.getBridgeByAppId(appId)
+        if (entry && (entry.session.status === 'ready' || entry.session.status === 'active')) {
+          resolve()
+          return
+        }
+        if (Date.now() - start > timeoutMs) {
+          reject(new Error(`Timed out waiting for app ${appId} bridge to be ready`))
+          return
+        }
+        setTimeout(check, 100)
+      }
+      check()
+    })
+  }
+
   // --- Event Handling ---
 
   private handleBridgeEvent(sessionId: string, event: BridgeEvent): void {

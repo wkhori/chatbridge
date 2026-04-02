@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader, Text } from '@mantine/core'
-import { IconAlertTriangle, IconRefresh } from '@tabler/icons-react'
+import { IconAlertTriangle, IconRefresh, IconWifi } from '@tabler/icons-react'
 import { appBridgeManager } from '@/packages/app-bridge'
 
 interface AppIframeProps {
@@ -14,6 +14,7 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [iframeHeight, setIframeHeight] = useState(400)
   const [error, setError] = useState<string | null>(null)
+  const [heartbeatWarning, setHeartbeatWarning] = useState(false)
 
   const manifest = appBridgeManager.getManifest(appId)
 
@@ -21,14 +22,18 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
   useEffect(() => {
     if (!manifest || !iframeRef.current) return
 
+    const cleanups: Array<() => void> = []
+
     appBridgeManager.attachBridge(sessionId, iframeRef.current)
 
-    const off = appBridgeManager.onSessionChange((session) => {
+    // Track session status changes
+    const offSession = appBridgeManager.onSessionChange((session) => {
       if (session.id !== sessionId) return
       switch (session.status) {
         case 'ready':
         case 'active':
           setStatus('ready')
+          setHeartbeatWarning(false)
           break
         case 'error':
           setStatus('error')
@@ -36,8 +41,22 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
           break
       }
     })
+    cleanups.push(offSession)
 
-    // Listen for UI_RESIZE from the bridge event system
+    // Once bridge exists, listen for heartbeat timeouts
+    const pollForBridge = setInterval(() => {
+      const bridge = appBridgeManager.getBridge(sessionId)
+      if (!bridge) return
+      clearInterval(pollForBridge)
+
+      const offHb = bridge.on('heartbeat_timeout', () => {
+        setHeartbeatWarning(true)
+      })
+      cleanups.push(offHb)
+    }, 300)
+    cleanups.push(() => clearInterval(pollForBridge))
+
+    // Listen for UI_RESIZE via raw postMessage (backup for direct bridge events)
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.protocol !== 'chatbridge') return
       if (event.data?.appId !== appId) return
@@ -46,6 +65,7 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
       }
     }
     window.addEventListener('message', handleMessage)
+    cleanups.push(() => window.removeEventListener('message', handleMessage))
 
     // Timeout for READY
     const readyTimeout = setTimeout(() => {
@@ -57,11 +77,10 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
         return prev
       })
     }, 15000)
+    cleanups.push(() => clearTimeout(readyTimeout))
 
     return () => {
-      off()
-      window.removeEventListener('message', handleMessage)
-      clearTimeout(readyTimeout)
+      for (const fn of cleanups) fn()
       appBridgeManager.detachBridge(sessionId)
     }
   }, [manifest, appId, sessionId])
@@ -69,6 +88,7 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
   const handleRetry = useCallback(() => {
     setStatus('loading')
     setError(null)
+    setHeartbeatWarning(false)
     if (iframeRef.current && manifest) {
       iframeRef.current.src = manifest.url
     }
@@ -93,6 +113,23 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
         </Text>
         {status === 'loading' && <Loader size={12} />}
       </div>
+
+      {/* Heartbeat warning */}
+      {heartbeatWarning && status === 'ready' && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800">
+          <IconWifi size={14} className="text-yellow-600 dark:text-yellow-400" />
+          <Text size="xs" className="text-yellow-700 dark:text-yellow-300">
+            App is not responding — it may have frozen
+          </Text>
+          <button
+            onClick={handleRetry}
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-800 text-yellow-700 dark:text-yellow-300 hover:opacity-80 transition-opacity cursor-pointer border-none"
+          >
+            <IconRefresh size={12} />
+            Reload
+          </button>
+        </div>
+      )}
 
       {/* Error state */}
       {status === 'error' && (

@@ -36,7 +36,8 @@ import {
 import fileToolSet from './toolsets/file'
 import { getToolSet } from './toolsets/knowledge-base'
 import websearchToolSet, { parseLinkTool, webSearchTool } from './toolsets/web-search'
-import { getAppTools, getAppToolInstructions } from '@/packages/app-bridge/tool-bridge'
+import { getAppTools, getAppToolInstructions, type AppToolsOptions } from '@/packages/app-bridge/tool-bridge'
+import { appRouter } from '@/packages/app-bridge/routing'
 
 /**
  * 处理搜索结果并返回模型响应的通用函数
@@ -176,6 +177,16 @@ export async function streamText(
     toolSetInstructions += websearchToolSet.description
   }
 
+  // ChatBridge: promote apps based on user message keywords
+  const lastUserMsg = [...params.messages].reverse().find((m) => m.role === 'user')
+  if (lastUserMsg) {
+    const text = lastUserMsg.contentParts
+      .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .map((p) => p.text)
+      .join(' ')
+    if (text) appRouter.promoteByMessage(text)
+  }
+
   // ChatBridge: inject app tool instructions
   const appToolInstructions = getAppToolInstructions()
   if (appToolInstructions) {
@@ -197,11 +208,12 @@ export async function streamText(
   // 2. sequence messages to fix the order, prevent model API 400 errors
   const messages = sequenceMessages(params.messages)
   const infoParts: MessageInfoPart[] = []
+  const appEmbedParts: Array<{ type: 'app-embed'; appId: string; sessionId: string }> = []
   try {
     params.onResultChangeWithCancel({ cancel }) // 这里先传递 cancel 方法
     const onResultChange: OnResultChange = (data) => {
       if (data.contentParts) {
-        result = { ...result, ...data, contentParts: [...infoParts, ...data.contentParts] }
+        result = { ...result, ...data, contentParts: [...infoParts, ...appEmbedParts, ...data.contentParts] }
       } else {
         result = { ...result, ...data }
       }
@@ -323,8 +335,15 @@ export async function streamText(
       }
     }
 
-    // ChatBridge: merge app-registered tools
-    const appTools = getAppTools()
+    // ChatBridge: merge app-registered tools (from manifests + active sessions)
+    const appTools = getAppTools({
+      conversationId: sessionId,
+      onAppLaunched: (appId, newSessionId) => {
+        // Auto-launched app: inject app-embed content part so iframe renders
+        appEmbedParts.push({ type: 'app-embed', appId, sessionId: newSessionId })
+        onResultChange({ contentParts: [] })
+      },
+    })
     if (Object.keys(appTools).length > 0) {
       tools = {
         ...tools,

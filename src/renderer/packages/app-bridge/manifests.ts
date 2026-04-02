@@ -62,4 +62,29 @@ export const CHESS_MANIFEST: AppManifest = {
   keywords: ['chess', 'game', 'play', 'board', 'move', 'checkmate'],
 }
 
-export const BUILT_IN_MANIFESTS: AppManifest[] = [CHESS_MANIFEST]
+export const WHITEBOARD_MANIFEST: AppManifest = {
+  id: 'whiteboard',
+  name: 'cre8 Whiteboard',
+  version: '1.0.0',
+  description:
+    'Interactive infinite canvas whiteboard. Students can draw diagrams, create flowcharts, add shapes and sticky notes, and collaborate visually. AI can see the canvas via screenshots.',
+  url: 'https://cre8-seven.vercel.app/demo',
+  icon: '🎨',
+  permissions: ['state_push', 'vision', 'ui_resize'],
+  auth: { type: 'none' },
+  tools: [
+    {
+      name: 'open_whiteboard',
+      description: 'Open the cre8 whiteboard for drawing, diagramming, or visual collaboration.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'capture_canvas',
+      description: 'Take a screenshot of the current whiteboard canvas so the AI can see what the student drew.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+  ],
+  keywords: ['draw', 'whiteboard', 'diagram', 'sketch', 'canvas', 'flowchart', 'sticky', 'visual', 'cre8'],
+}
+
+export const BUILT_IN_MANIFESTS: AppManifest[] = [CHESS_MANIFEST, WHITEBOARD_MANIFEST]
