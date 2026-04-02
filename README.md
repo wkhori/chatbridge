@@ -143,7 +143,7 @@ sdk.sendReady('My App', '1.0.0')
 
 ## Deployed Links
 
-- **Main App:** https://chatbridge-main-production.up.railway.app
+- **Main App:** https://chatbridge-production-7c94.up.railway.app
 - **Chess App:** https://chatbridge-chess-production.up.railway.app
 - **Classroom App:** https://chatbridge-classroom-production.up.railway.app
 
