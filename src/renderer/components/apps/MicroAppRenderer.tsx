@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader, Text } from '@mantine/core'
 import { IconAlertTriangle } from '@tabler/icons-react'
+import { MICRO_APP_MIN_HEIGHT, MICRO_APP_MAX_HEIGHT, MICRO_APP_MAX_SIZE } from '@shared/protocol/types'
 
 // Bridge SDK injected into micro-app iframes
 const BRIDGE_SDK = `
@@ -37,10 +38,8 @@ const BRIDGE_SDK = `
 // Block dangerous patterns in generated HTML
 const BLOCKLIST = [/\beval\s*\(/, /\bnew\s+Function\s*\(/, /\bfetch\s*\(/, /\bXMLHttpRequest\b/, /\bWebSocket\b/, /\bimportScripts\b/]
 
-const MAX_SIZE = 200 * 1024 // 200KB
-
 function validateHtml(html: string): string | null {
-  if (html.length > MAX_SIZE) return 'Micro-app exceeds 200KB size limit'
+  if (html.length > MICRO_APP_MAX_SIZE) return `Micro-app exceeds ${MICRO_APP_MAX_SIZE / 1024}KB size limit`
   for (const pattern of BLOCKLIST) {
     if (pattern.test(html)) return `Blocked pattern detected: ${pattern.source}`
   }
@@ -89,7 +88,7 @@ export function MicroAppRenderer({ html, title, sessionId }: MicroAppRendererPro
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.protocol !== 'chatbridge') return
       if (event.data?.type === 'UI_RESIZE' && typeof event.data.payload?.height === 'number') {
-        setHeight(Math.min(Math.max(event.data.payload.height, 100), 600))
+        setHeight(Math.min(Math.max(event.data.payload.height, MICRO_APP_MIN_HEIGHT), MICRO_APP_MAX_HEIGHT))
       }
     }
     window.addEventListener('message', handleMessage)

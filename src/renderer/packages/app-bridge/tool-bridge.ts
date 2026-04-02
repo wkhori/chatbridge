@@ -1,27 +1,33 @@
 import { tool } from 'ai'
 import { jsonSchema } from 'ai'
 import type { ToolSet } from 'ai'
+import { z } from 'zod'
 import type { AppManifest, ToolSchema } from '@shared/protocol/types'
+import { AUTO_LAUNCH_TIMEOUT } from '@shared/protocol/types'
+import { ChatBridgeError } from '@shared/protocol/errors'
+import type { ActionSuggestion } from '@shared/types'
 import { appBridgeManager } from './manager'
+import { appRouter } from './routing'
 
 export interface AppToolsOptions {
   /** Current conversation ID — needed to create sessions */
   conversationId?: string
   /** Called when an app is auto-launched so the caller can inject an app-embed content part */
   onAppLaunched?: (appId: string, sessionId: string) => void
+  /** Called when AI suggests action buttons */
+  onActionSuggestions?: (suggestions: ActionSuggestion[]) => void
 }
 
 /**
- * Generates AI SDK ToolSet from all registered app manifests + active sessions.
- * Tools from active sessions invoke directly; tools from manifests auto-launch the app first.
- * Tool names follow convention: app__{appId}__{toolName}
+ * Generates AI SDK ToolSet from active sessions + a launch_app meta-tool.
+ * Tools from active sessions invoke directly via app__{appId}__{toolName}.
+ * Apps without sessions are launched via the launch_app tool.
  */
 export function getAppTools(opts?: AppToolsOptions): ToolSet {
   const tools: ToolSet = {}
   const manifests = appBridgeManager.getAllManifests()
   const sessions = appBridgeManager.getAllSessions()
 
-  // Track apps that already have usable sessions
   const appsWithSessions = new Set<string>()
 
   // 1. Tools from active sessions — invoke directly
@@ -40,44 +46,88 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
           try {
             return await appBridgeManager.invokeTool(session.appId, toolDef.name, toolCallId, params)
           } catch (err) {
-            return { error: err instanceof Error ? err.message : String(err) }
+            const msg = err instanceof Error ? err.message : String(err)
+            const code = err instanceof ChatBridgeError ? err.code : undefined
+            return { error: msg, ...(code && { code }) }
           }
         },
       })
     }
   }
 
-  // 2. Tools from manifests for apps WITHOUT active sessions — auto-launch on first call
-  for (const [appId, manifest] of Object.entries(manifests)) {
-    if (appsWithSessions.has(appId)) continue
-    if (!manifest.tools?.length) continue
-
-    for (const toolDef of manifest.tools) {
-      const toolKey = `app__${appId}__${toolDef.name}`
-      tools[toolKey] = tool({
-        description: `[${manifest.name}] ${toolDef.description}`,
-        parameters: jsonSchema(toolDef.inputSchema as any),
-        execute: async (params: Record<string, unknown>, { toolCallId }) => {
-          try {
-            // Auto-launch: create session and notify caller to render iframe
-            const newSession = appBridgeManager.createSession(
-              manifest,
-              opts?.conversationId || ''
-            )
-            opts?.onAppLaunched?.(appId, newSession.id)
-
-            // Wait for bridge to become ready (iframe renders → app loads → READY)
-            await appBridgeManager.waitForBridge(appId, 12000)
-
-            // Now invoke the actual tool
-            return await appBridgeManager.invokeTool(appId, toolDef.name, toolCallId, params)
-          } catch (err) {
-            return { error: err instanceof Error ? err.message : String(err) }
-          }
+  // 2. launch_app meta-tool — launches any registered app that isn't already running
+  const launchableApps = Object.entries(manifests).filter(([id]) => !appsWithSessions.has(id))
+  if (launchableApps.length > 0) {
+    tools['launch_app'] = tool({
+      description:
+        `Launch a third-party app. Available apps: ${launchableApps.map(([, m]) => `${m.name} (id: "${m.id}")`).join(', ')}. ` +
+        `After launching, the app will register its tools and you can use them.`,
+      parameters: jsonSchema({
+        type: 'object',
+        properties: {
+          appId: {
+            type: 'string',
+            enum: launchableApps.map(([id]) => id),
+            description: 'ID of the app to launch',
+          },
         },
-      })
-    }
+        required: ['appId'],
+      } as any),
+      execute: async (params: Record<string, unknown>) => {
+        const appId = params.appId as string
+        const manifest = manifests[appId]
+        if (!manifest) return { error: `App "${appId}" not found` }
+
+        try {
+          const newSession = appBridgeManager.createSession(manifest, opts?.conversationId || '')
+          opts?.onAppLaunched?.(appId, newSession.id)
+          await appBridgeManager.waitForBridge(appId, AUTO_LAUNCH_TIMEOUT)
+          const session = appBridgeManager.getAllSessions().find(
+            (s) => s.appId === appId && s.status !== 'destroyed' && s.status !== 'error'
+          )
+          return {
+            launched: true,
+            appId,
+            name: manifest.name,
+            tools: (session?.tools || []).map((t) => `app__${appId}__${t.name}`),
+          }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) }
+        }
+      },
+    })
   }
+
+  // 3. suggest_actions — AI generates contextual action buttons
+  tools['suggest_actions'] = tool({
+    description:
+      'Suggest contextual action buttons for the user. Use after responding to show relevant next steps. Each suggestion becomes a clickable button.',
+    parameters: jsonSchema({
+      type: 'object',
+      properties: {
+        suggestions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'Button text (short, e.g. "Play Chess", "Get Hint")' },
+              icon: { type: 'string', description: 'Optional emoji icon' },
+              toolName: { type: 'string', description: 'Tool to invoke when clicked (e.g. "app__chess__start_game")' },
+              args: { type: 'object', description: 'Arguments to pass to the tool' },
+            },
+            required: ['label', 'toolName', 'args'],
+          },
+          description: 'Array of action suggestions (2-4 recommended)',
+        },
+      },
+      required: ['suggestions'],
+    } as any),
+    execute: async (params: Record<string, unknown>) => {
+      const suggestions = params.suggestions as ActionSuggestion[]
+      opts?.onActionSuggestions?.(suggestions)
+      return { displayed: suggestions.length }
+    },
+  })
 
   return tools
 }
@@ -100,13 +150,37 @@ export function getAppToolInstructions(): string {
 
   let instructions = '\n\n## Third-Party Apps\n\n'
   instructions += 'You are a tutoring AI with access to interactive third-party apps embedded in this chat. '
-  instructions += 'When the user asks to use an app, invoke its tools. Do NOT invoke app tools for unrelated queries.\n\n'
+  instructions += 'To start an app, use the **launch_app** tool. Once launched, the app registers its tools and you can invoke them.\n\n'
+  instructions += '### Action Suggestions\n'
+  instructions += 'After responding, use the **suggest_actions** tool to show 2-4 relevant action buttons. '
+  instructions += 'Suggestions should be contextual next steps the user might want. Examples:\n'
+  instructions += '- After greeting: suggest opening available apps\n'
+  instructions += '- During a chess game: suggest "Get Hint", "View Status", "Resign"\n'
+  instructions += '- After explaining a concept: suggest "Draw on Whiteboard", "Practice with Quiz"\n'
+  instructions += 'Each suggestion needs: label (short), toolName (the tool to call), args (tool arguments), and optional icon emoji.\n\n'
 
-  // Active sessions (full detail)
+  // Active sessions — respect tier for injection level
   for (const session of activeSessions) {
     const manifest = manifests[session.appId]
     if (!manifest) continue
 
+    const tier = appRouter.getTier(session.appId)
+
+    // 'none' tier: omit entirely from context
+    if (tier === 'none') continue
+
+    // 'summary' tier: description + state only, no tools
+    if (tier === 'summary') {
+      instructions += `### ${manifest.name} (active, background)\n`
+      instructions += `${manifest.description}\n`
+      if (session.stateSummary) {
+        instructions += `Current state: ${session.stateSummary}\n`
+      }
+      instructions += '\n'
+      continue
+    }
+
+    // 'full' tier (default for active): all tools + state
     instructions += `### ${manifest.name} (ACTIVE)\n`
     instructions += `${manifest.description}\n`
 
@@ -123,13 +197,16 @@ export function getAppToolInstructions(): string {
     instructions += '\n'
   }
 
-  // Available but not active (summary only)
+  // Available but not launched — tell AI to use launch_app
   for (const [appId, manifest] of Object.entries(manifests)) {
     if (activeAppIds.has(appId)) continue
-    instructions += `### ${manifest.name} (available, not started)\n`
+    const tier = appRouter.getTier(appId)
+    if (tier === 'none') continue
+
+    instructions += `### ${manifest.name} (available — use launch_app to start)\n`
     instructions += `${manifest.description}\n`
     instructions += `Keywords: ${manifest.keywords?.join(', ') || 'none'}\n`
-    instructions += `To use: tell the user you can open ${manifest.name}, then invoke its tools.\n\n`
+    instructions += `To use: call launch_app with appId="${appId}", then use the tools it registers.\n\n`
   }
 
   return instructions

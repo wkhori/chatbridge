@@ -1,4 +1,5 @@
 import type { AppManifest } from '@shared/protocol/types'
+import { INACTIVE_DEMOTION_MS } from '@shared/protocol/types'
 import { appBridgeManager } from './manager'
 
 export type InjectionTier = 'full' | 'summary' | 'none'
@@ -8,8 +9,6 @@ interface TierState {
   lastActiveAt: number
   reason: string
 }
-
-const INACTIVE_DEMOTION_MS = 5 * 60 * 1000 // 5 minutes → demote from full to summary
 
 /**
  * App routing: detects which apps are relevant based on user message keywords,

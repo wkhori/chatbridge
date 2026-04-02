@@ -165,3 +165,5 @@ export class ChatBridgeSDK {
     window.parent.postMessage(msg, '*')
   }
 }
+
+export type { ToolDefinition, ToolHandler }

@@ -1,6 +1,6 @@
 import NiceModal from '@ebay/nice-modal-react'
 import { Button } from '@mantine/core'
-import type { Message, ModelProvider } from '@shared/types'
+import { createMessage, type Message, type ModelProvider } from '@shared/types'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,6 +11,8 @@ import InputBox from '@/components/InputBox/InputBox'
 import Header from '@/components/layout/Header'
 import ThreadHistoryDrawer from '@/components/session/ThreadHistoryDrawer'
 import * as remote from '@/packages/remote'
+import { CHATBRIDGE_EVENTS, onChatBridgeEvent } from '@/packages/app-bridge/events'
+import { appBridgeManager } from '@/packages/app-bridge'
 import { updateSession as updateSessionStore, useSession } from '@/stores/chatStore'
 import { lastUsedModelStore } from '@/stores/lastUsedModelStore'
 import * as scrollActions from '@/stores/scrollActions'
@@ -46,6 +48,30 @@ function RouteComponent() {
       scrollActions.scrollToBottom('auto') // 每次启动时自动滚动到底部
     }, 200)
   }, [])
+
+  // ChatBridge: listen for action suggestion clicks and auto-submit as user messages
+  useEffect(() => {
+    if (!currentSession) return
+    const off = onChatBridgeEvent(CHATBRIDGE_EVENTS.ACTION_SUGGESTION_CLICK, (detail) => {
+      const text = detail.text as string
+      if (text && currentSession) {
+        const msg = createMessage('user', text)
+        submitNewUserMessage(currentSession.id, {
+          newUserMsg: msg,
+          needGenerating: true,
+        }).catch(console.error)
+      }
+    })
+    return off
+  }, [currentSession])
+
+  // ChatBridge: clean up app sessions when leaving this conversation
+  useEffect(() => {
+    const sessionId = currentSessionId
+    return () => {
+      appBridgeManager.destroyConversationSessions(sessionId)
+    }
+  }, [currentSessionId])
 
   // currentSession变化时（包括session settings变化），存下当前的settings作为新Session的默认值
   useEffect(() => {

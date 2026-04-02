@@ -1,3 +1,7 @@
 export { appBridgeManager } from './manager'
 export { getAppTools, getAppToolInstructions } from './tool-bridge'
-export { BUILT_IN_MANIFESTS, CHESS_MANIFEST } from './manifests'
+export type { AppToolsOptions } from './tool-bridge'
+export { BUILT_IN_MANIFESTS, CHESS_MANIFEST, WHITEBOARD_MANIFEST, CLASSROOM_MANIFEST } from './manifests'
+export { appRouter } from './routing'
+export type { InjectionTier } from './routing'
+export { CHATBRIDGE_EVENTS, dispatchChatBridgeEvent, onChatBridgeEvent } from './events'

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader, Text } from '@mantine/core'
 import { IconAlertTriangle, IconRefresh, IconWifi } from '@tabler/icons-react'
 import { appBridgeManager } from '@/packages/app-bridge'
+import { BRIDGE_POLL_INTERVAL, IFRAME_MIN_HEIGHT, IFRAME_MAX_HEIGHT, READY_TIMEOUT } from '@shared/protocol/types'
 
 interface AppIframeProps {
   appId: string
@@ -43,7 +44,7 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
     })
     cleanups.push(offSession)
 
-    // Once bridge exists, listen for heartbeat timeouts
+    // Once bridge exists, listen for heartbeat timeouts + UI_RESIZE via bridge events
     const pollForBridge = setInterval(() => {
       const bridge = appBridgeManager.getBridge(sessionId)
       if (!bridge) return
@@ -53,30 +54,25 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
         setHeartbeatWarning(true)
       })
       cleanups.push(offHb)
-    }, 300)
-    cleanups.push(() => clearInterval(pollForBridge))
 
-    // Listen for UI_RESIZE via raw postMessage (backup for direct bridge events)
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.protocol !== 'chatbridge') return
-      if (event.data?.appId !== appId) return
-      if (event.data?.type === 'UI_RESIZE' && typeof event.data.payload?.height === 'number') {
-        setIframeHeight(Math.min(Math.max(event.data.payload.height, 200), 800))
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    cleanups.push(() => window.removeEventListener('message', handleMessage))
+      const offResize = bridge.on('ui_resize', (event) => {
+        const { height } = event.data as { height: number }
+        setIframeHeight(Math.min(Math.max(height, IFRAME_MIN_HEIGHT), IFRAME_MAX_HEIGHT))
+      })
+      cleanups.push(offResize)
+    }, BRIDGE_POLL_INTERVAL)
+    cleanups.push(() => clearInterval(pollForBridge))
 
     // Timeout for READY
     const readyTimeout = setTimeout(() => {
       setStatus((prev) => {
         if (prev === 'loading') {
-          setError('App failed to load within 15 seconds')
+          setError(`App failed to load within ${READY_TIMEOUT / 1000} seconds`)
           return 'error'
         }
         return prev
       })
-    }, 15000)
+    }, READY_TIMEOUT)
     cleanups.push(() => clearTimeout(readyTimeout))
 
     return () => {
@@ -152,7 +148,11 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
       <iframe
         ref={iframeRef}
         src={manifest.url}
-        sandbox="allow-scripts"
+        sandbox={
+          manifest.auth?.type === 'oauth2'
+            ? 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
+            : 'allow-scripts'
+        }
         allow="accelerometer 'none'; camera 'none'; geolocation 'none'; microphone 'none'; clipboard-write 'none'"
         className="w-full border-none"
         style={{

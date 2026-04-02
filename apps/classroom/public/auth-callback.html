@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Signing in...</title>
+  <style>
+    body { font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #1a1a2e; color: #e0e0e0; }
+  </style>
+</head>
+<body>
+  <div id="status">Completing sign-in...</div>
+  <script>
+    // Parse the hash fragment from Google's implicit flow redirect
+    const hash = window.location.hash.substring(1)
+    const params = new URLSearchParams(hash)
+    const accessToken = params.get('access_token')
+    const state = params.get('state')
+    const error = params.get('error')
+
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'google-oauth-callback',
+        access_token: accessToken,
+        state: state,
+        error: error || (accessToken ? null : 'No access token'),
+      }, '*')
+      document.getElementById('status').textContent = 'Signed in! You can close this window.'
+      setTimeout(() => window.close(), 1500)
+    } else {
+      document.getElementById('status').textContent = 'Error: No opener window found.'
+    }
+  </script>
+</body>
+</html>

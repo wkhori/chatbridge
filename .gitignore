@@ -167,6 +167,7 @@ npm-debug.log.*
 *.scss.d.ts
 
 dist
+package-lock.json
 
 electron-builder.env
 

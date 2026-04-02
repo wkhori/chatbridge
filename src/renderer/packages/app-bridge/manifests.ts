@@ -12,53 +12,11 @@ export const CHESS_MANIFEST: AppManifest = {
   description:
     'Interactive chess game. Students can play chess, ask for move suggestions, and analyze positions. Supports full game lifecycle with move validation.',
   url: import.meta.env.DEV
-    ? 'http://localhost:5173' // Chess app dev server
-    : 'https://chatbridge-chess.vercel.app', // Production URL (update after deploy)
+    ? 'http://localhost:5173'
+    : 'https://chatbridge-chess-production.up.railway.app',
   icon: '♟️',
   permissions: ['state_push', 'completion'],
   auth: { type: 'none' },
-  tools: [
-    {
-      name: 'start_game',
-      description: 'Start a new chess game. Optionally set player color.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          playerColor: {
-            type: 'string',
-            enum: ['white', 'black'],
-            description: 'Color the human player plays as. Default: white.',
-          },
-        },
-      },
-    },
-    {
-      name: 'make_move',
-      description: 'Make a chess move in algebraic notation (e.g., "e4", "Nf3", "O-O").',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          move: { type: 'string', description: 'Move in SAN notation (e.g., "e4", "Nf3", "O-O")' },
-        },
-        required: ['move'],
-      },
-    },
-    {
-      name: 'get_hint',
-      description: 'Analyze current board position and suggest the best move.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'resign',
-      description: 'Resign the current game.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'get_status',
-      description: 'Get current game status: FEN, PGN, move history, game state, legal moves.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-  ],
   keywords: ['chess', 'game', 'play', 'board', 'move', 'checkmate'],
 }
 
@@ -72,19 +30,30 @@ export const WHITEBOARD_MANIFEST: AppManifest = {
   icon: '🎨',
   permissions: ['state_push', 'vision', 'ui_resize'],
   auth: { type: 'none' },
-  tools: [
-    {
-      name: 'open_whiteboard',
-      description: 'Open the cre8 whiteboard for drawing, diagramming, or visual collaboration.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'capture_canvas',
-      description: 'Take a screenshot of the current whiteboard canvas so the AI can see what the student drew.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-  ],
   keywords: ['draw', 'whiteboard', 'diagram', 'sketch', 'canvas', 'flowchart', 'sticky', 'visual', 'cre8'],
 }
 
-export const BUILT_IN_MANIFESTS: AppManifest[] = [CHESS_MANIFEST, WHITEBOARD_MANIFEST]
+export const CLASSROOM_MANIFEST: AppManifest = {
+  id: 'classroom',
+  name: 'Google Classroom',
+  version: '1.0.0',
+  description:
+    'Connect to Google Classroom to view courses, assignments, and grades. Students can ask the AI for help with specific assignments. Requires Google sign-in.',
+  url: import.meta.env.DEV
+    ? 'http://localhost:5174'
+    : 'https://chatbridge-classroom-production.up.railway.app',
+  icon: '📚',
+  permissions: ['state_push', 'completion'],
+  auth: {
+    type: 'oauth2',
+    provider: 'google',
+    scopes: [
+      'classroom.courses.readonly',
+      'classroom.coursework.me.readonly',
+      'classroom.student-submissions.me.readonly',
+    ],
+  },
+  keywords: ['classroom', 'courses', 'assignments', 'homework', 'grades', 'google', 'school', 'class'],
+}
+
+export const BUILT_IN_MANIFESTS: AppManifest[] = [CHESS_MANIFEST, WHITEBOARD_MANIFEST, CLASSROOM_MANIFEST]

@@ -1,9 +1,11 @@
 import { v4 as uuid } from 'uuid'
 import { AppBridge, type BridgeEvent } from '@shared/protocol/bridge'
+import { ChatBridgeError } from '@shared/protocol/errors'
 import {
   type AppManifest,
   type AppSession,
   AppSessionStatus,
+  ErrorCode,
   type ToolSchema,
 } from '@shared/protocol/types'
 
@@ -41,7 +43,7 @@ class AppBridgeManager {
       appId: manifest.id,
       conversationId,
       status: AppSessionStatus.LOADING,
-      tools: manifest.tools || [],
+      tools: [],
       state: null,
       stateSummary: null,
       stateVersion: 0,
@@ -87,7 +89,8 @@ class AppBridgeManager {
       existing.detach()
     }
 
-    const bridge = new AppBridge(session, new Set(['null']))
+    const manifest = this.manifests.get(session.appId)
+    const bridge = new AppBridge(session, new Set(['null']), manifest?.url)
     bridge.attach(iframe)
 
     // Set up event handlers
@@ -133,12 +136,12 @@ class AppBridgeManager {
   async invokeTool(appId: string, toolName: string, toolCallId: string, params: Record<string, unknown>): Promise<unknown> {
     const entry = this.getBridgeByAppId(appId)
     if (!entry) {
-      throw new Error(`No active bridge for app ${appId}`)
+      throw new ChatBridgeError(ErrorCode.NOT_READY, `No active bridge for app ${appId}`)
     }
     const { bridge, session } = entry
 
     if (session.status !== 'ready' && session.status !== 'active') {
-      throw new Error(`App ${appId} is in ${session.status} state, cannot invoke tools`)
+      throw new ChatBridgeError(ErrorCode.NOT_READY, `App ${appId} is in ${session.status} state, cannot invoke tools`)
     }
 
     this.updateSession(session.id, { status: AppSessionStatus.ACTIVE })
@@ -159,7 +162,7 @@ class AppBridgeManager {
           return
         }
         if (Date.now() - start > timeoutMs) {
-          reject(new Error(`Timed out waiting for app ${appId} bridge to be ready`))
+          reject(new ChatBridgeError(ErrorCode.NOT_READY, `Timed out waiting for app ${appId} bridge to be ready`))
           return
         }
         setTimeout(check, 100)
@@ -231,6 +234,14 @@ class AppBridgeManager {
   }
 
   // --- Cleanup ---
+
+  destroyConversationSessions(conversationId: string): void {
+    const sessions = this.getSessionsForConversation(conversationId)
+    for (const session of sessions) {
+      this.detachBridge(session.id)
+      this.updateSession(session.id, { status: AppSessionStatus.DESTROYED })
+    }
+  }
 
   destroyAll(): void {
     for (const [sessionId] of this.bridges) {

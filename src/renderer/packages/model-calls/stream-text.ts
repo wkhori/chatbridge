@@ -209,11 +209,12 @@ export async function streamText(
   const messages = sequenceMessages(params.messages)
   const infoParts: MessageInfoPart[] = []
   const appEmbedParts: Array<{ type: 'app-embed'; appId: string; sessionId: string }> = []
+  const actionSuggestionParts: Array<{ type: 'action-suggestions'; suggestions: Array<{ label: string; icon?: string; toolName: string; args: Record<string, unknown> }> }> = []
   try {
     params.onResultChangeWithCancel({ cancel }) // 这里先传递 cancel 方法
     const onResultChange: OnResultChange = (data) => {
       if (data.contentParts) {
-        result = { ...result, ...data, contentParts: [...infoParts, ...appEmbedParts, ...data.contentParts] }
+        result = { ...result, ...data, contentParts: [...infoParts, ...appEmbedParts, ...data.contentParts, ...actionSuggestionParts] }
       } else {
         result = { ...result, ...data }
       }
@@ -341,6 +342,10 @@ export async function streamText(
       onAppLaunched: (appId, newSessionId) => {
         // Auto-launched app: inject app-embed content part so iframe renders
         appEmbedParts.push({ type: 'app-embed', appId, sessionId: newSessionId })
+        onResultChange({ contentParts: [] })
+      },
+      onActionSuggestions: (suggestions) => {
+        actionSuggestionParts.push({ type: 'action-suggestions', suggestions })
         onResultChange({ contentParts: [] })
       },
     })

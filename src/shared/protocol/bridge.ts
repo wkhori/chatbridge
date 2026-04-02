@@ -5,6 +5,7 @@ import {
   AppSessionStatus,
   type BridgeMessageType,
   CompletionPayloadSchema,
+  ErrorCode,
   ErrorPayloadSchema,
   HEARTBEAT_INTERVAL,
   HEARTBEAT_MISS_LIMIT,
@@ -25,6 +26,7 @@ import {
   VisionFramePayloadSchema,
   MAX_MESSAGE_SIZE,
 } from './types'
+import { ChatBridgeError } from './errors'
 
 // --- Rate Limiter ---
 
@@ -81,7 +83,7 @@ export interface BridgeEvent {
   data: unknown
 }
 
-type BridgeListener = (event: BridgeEvent) => void
+export type BridgeListener = (event: BridgeEvent) => void
 
 export class AppBridge {
   private iframe: HTMLIFrameElement | null = null
@@ -93,11 +95,25 @@ export class AppBridge {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private missedHeartbeats = 0
   private destroyed = false
+  private targetOrigin: string
 
   constructor(
     public readonly session: AppSession,
-    private readonly allowedOrigins: Set<string>
-  ) {}
+    private readonly allowedOrigins: Set<string>,
+    manifestUrl?: string
+  ) {
+    // For sandboxed iframes the origin becomes "null" — must use '*'
+    // For known manifest URLs, restrict to that origin
+    if (manifestUrl) {
+      try {
+        this.targetOrigin = new URL(manifestUrl).origin
+      } catch {
+        this.targetOrigin = '*'
+      }
+    } else {
+      this.targetOrigin = '*'
+    }
+  }
 
   // --- Public API ---
 
@@ -119,7 +135,7 @@ export class AppBridge {
     // Reject all pending tool calls
     for (const [id, pending] of this.pendingToolCalls) {
       clearTimeout(pending.timer)
-      pending.reject(new Error('Bridge destroyed'))
+      pending.reject(new ChatBridgeError(ErrorCode.ALREADY_DESTROYED, 'Bridge destroyed'))
       this.pendingToolCalls.delete(id)
     }
     this.detach()
@@ -129,7 +145,7 @@ export class AppBridge {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         off()
-        reject(new Error(`App ${this.session.appId} failed to send READY within ${READY_TIMEOUT}ms`))
+        reject(new ChatBridgeError(ErrorCode.NOT_READY, `App ${this.session.appId} failed to send READY within ${READY_TIMEOUT}ms`))
       }, READY_TIMEOUT)
 
       const off = this.on('ready', () => {
@@ -157,7 +173,7 @@ export class AppBridge {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingToolCalls.delete(toolCallId)
-        reject(new Error(`Tool ${toolName} timed out after ${timeout}ms`))
+        reject(new ChatBridgeError(ErrorCode.TOOL_TIMEOUT, `Tool ${toolName} timed out after ${timeout}ms`))
       }, timeout)
 
       this.pendingToolCalls.set(toolCallId, { resolve, reject, timer })
@@ -243,7 +259,7 @@ export class AppBridge {
           if (parsed.data.success) {
             pending.resolve(parsed.data.result)
           } else {
-            pending.reject(new Error(parsed.data.error || 'Tool invocation failed'))
+            pending.reject(new ChatBridgeError(ErrorCode.TOOL_INVOKE_FAILED, parsed.data.error || 'Tool invocation failed'))
           }
         }
         break
@@ -300,7 +316,10 @@ export class AppBridge {
       payload,
     }
 
-    this.iframe.contentWindow.postMessage(msg, '*')
+    // Sandboxed iframes have origin "null" — targetOrigin must be '*' for those
+    // Otherwise use the manifest URL origin for security
+    const isSandboxed = this.allowedOrigins.has('null')
+    this.iframe.contentWindow.postMessage(msg, isSandboxed ? '*' : this.targetOrigin)
   }
 
   private emit(type: BridgeEventType, data: unknown): void {
