@@ -19,6 +19,10 @@ RUN pnpm run --if-present postinstall 2>/dev/null || true
 # Copy source
 COPY . .
 
+# Accept build-time env vars for Vite static replacement
+ARG VITE_ANTHROPIC_API_KEY
+ENV VITE_ANTHROPIC_API_KEY=$VITE_ANTHROPIC_API_KEY
+
 # Build web
 RUN pnpm build:web
 
