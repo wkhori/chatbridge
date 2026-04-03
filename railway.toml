@@ -1,6 +1,7 @@
 [build]
-dockerfilePath = "Dockerfile"
+buildCommand = "pnpm build:web"
 
 [deploy]
+startCommand = "npx serve release/app/dist/renderer -s -p ${PORT:-3000}"
 healthcheckPath = "/"
 restartPolicyType = "ON_FAILURE"
