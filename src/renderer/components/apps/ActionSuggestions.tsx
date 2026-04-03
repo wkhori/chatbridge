@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { ActionSuggestion } from '@shared/types'
 import { CHATBRIDGE_EVENTS, dispatchChatBridgeEvent } from '@/packages/app-bridge/events'
 
@@ -5,7 +6,7 @@ interface ActionSuggestionsProps {
   suggestions: ActionSuggestion[]
 }
 
-export function ActionSuggestions({ suggestions }: ActionSuggestionsProps) {
+export const ActionSuggestions = memo(function ActionSuggestions({ suggestions }: ActionSuggestionsProps) {
   if (!suggestions.length) return null
 
   const handleClick = (suggestion: ActionSuggestion) => {
@@ -34,4 +35,4 @@ export function ActionSuggestions({ suggestions }: ActionSuggestionsProps) {
       ))}
     </div>
   )
-}
+})

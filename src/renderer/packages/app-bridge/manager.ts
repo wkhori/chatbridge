@@ -83,14 +83,22 @@ class AppBridgeManager {
       return
     }
 
-    // Clean up existing bridge for this session
+    // If bridge already exists, just swap the iframe ref — don't recreate
     const existing = this.bridges.get(sessionId)
     if (existing) {
-      existing.detach()
+      existing.reattach(iframe)
+      // Don't eagerly send INIT here — the iframe DOM element may be new
+      // (React remount) and the app hasn't loaded yet. The app will send
+      // READY when it loads, and the bridge's READY handler re-sends INIT.
+      return
     }
 
     const manifest = this.manifests.get(session.appId)
-    const bridge = new AppBridge(session, new Set(['null']), manifest?.url)
+    const allowedOrigins = new Set(['null'])
+    if (manifest?.url) {
+      try { allowedOrigins.add(new URL(manifest.url).origin) } catch { /* ignore invalid URLs */ }
+    }
+    const bridge = new AppBridge(session, allowedOrigins, manifest?.url)
     bridge.attach(iframe)
 
     // Set up event handlers
@@ -106,6 +114,14 @@ class AppBridgeManager {
       console.error(`[AppBridgeManager] READY timeout for ${session.appId}:`, err)
       this.updateSession(sessionId, { status: AppSessionStatus.ERROR })
     })
+  }
+
+  /** Remove iframe ref from bridge without destroying it */
+  detachIframe(sessionId: string): void {
+    const bridge = this.bridges.get(sessionId)
+    if (bridge) {
+      bridge.detachIframe()
+    }
   }
 
   detachBridge(sessionId: string): void {
@@ -140,7 +156,7 @@ class AppBridgeManager {
     }
     const { bridge, session } = entry
 
-    if (session.status !== 'ready' && session.status !== 'active') {
+    if (session.status !== 'ready' && session.status !== 'active' && session.status !== 'completed') {
       throw new ChatBridgeError(ErrorCode.NOT_READY, `App ${appId} is in ${session.status} state, cannot invoke tools`)
     }
 
@@ -189,11 +205,16 @@ class AppBridgeManager {
           summary?: string
           version?: number
         }
-        this.updateSession(sessionId, {
+        const stateUpdates: Partial<AppSession> = {
           state: data,
           stateSummary: summary || session.stateSummary,
           stateVersion: version || session.stateVersion + 1,
-        })
+        }
+        // Re-activate completed sessions that send new state (e.g. in-app restart)
+        if (session.status === AppSessionStatus.COMPLETED) {
+          stateUpdates.status = AppSessionStatus.ACTIVE
+        }
+        this.updateSession(sessionId, stateUpdates)
         break
       }
       case 'completion': {

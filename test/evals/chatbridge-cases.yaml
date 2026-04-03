@@ -1,13 +1,13 @@
-name: "ChatBridge 7 Grading Scenarios"
+name: "ChatBridge Launch-Phase Evals"
 test_cases:
-  # Scenario 1: Tool Discovery — user asks to use a third-party app
+  # Scenario 1: Tool Discovery — user asks to use a specific app
   - id: eval-001-tool-discovery
     query: "Let's play chess"
     checks:
       expectedTools: [launch_app]
       thresholdMs: 30000
 
-  # Scenario 5: Multi-App Switching — switch to whiteboard
+  # Scenario 5: Multi-App Switching — switch to different app
   - id: eval-005-multi-app-switch
     query: "Actually, let me open the whiteboard instead"
     checks:
@@ -28,3 +28,56 @@ test_cases:
       toolCallMax: 0
       thresholdMs: 30000
       lengthMin: 10
+
+  # --- Extended coverage scenarios ---
+
+  # Direct classroom launch via keyword
+  - id: eval-010-classroom-keyword
+    query: "Show me my homework assignments"
+    checks:
+      expectedTools: [launch_app]
+      thresholdMs: 30000
+
+  # Whiteboard launch via keyword
+  - id: eval-011-whiteboard-keyword
+    query: "I need to draw a diagram"
+    checks:
+      expectedTools: [launch_app]
+      thresholdMs: 30000
+
+  # Micro-app generation request
+  - id: eval-012-micro-app-quiz
+    query: "Make me a multiple choice quiz about the water cycle"
+    checks:
+      expectedTools: [generate_micro_app]
+      thresholdMs: 30000
+
+  # Micro-app generation — calculator
+  - id: eval-013-micro-app-calculator
+    query: "Create an interactive unit converter for metric and imperial"
+    checks:
+      expectedTools: [generate_micro_app]
+      thresholdMs: 30000
+
+  # Refusal — pure math question, no tools needed
+  - id: eval-014-refusal-math
+    query: "What is 15 times 23?"
+    checks:
+      toolCallMax: 0
+      thresholdMs: 30000
+      lengthMin: 5
+
+  # Refusal — history question
+  - id: eval-015-refusal-knowledge
+    query: "Who was the first president of the United States?"
+    checks:
+      toolCallMax: 0
+      thresholdMs: 30000
+      lengthMin: 10
+
+  # Chess launch with explicit app name
+  - id: eval-016-explicit-chess
+    query: "Can you open the chess app for me?"
+    checks:
+      expectedTools: [launch_app]
+      thresholdMs: 30000

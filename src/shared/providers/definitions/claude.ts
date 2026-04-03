@@ -49,6 +49,12 @@ export const claudeProvider = defineProvider({
     ],
   },
   createModel: (config) => {
+    // Fall back to system API key so the app works out of the box for K-12 users
+    const apiKey: string =
+      (config as any).effectiveApiKey ||
+      (typeof process !== 'undefined' && process.env?.VITE_ANTHROPIC_API_KEY) ||
+      ''
+
     // Anthropic OAuth tokens (sk-ant-oat-*) require Bearer auth + beta header + system passphrase
     const isOAuth = config.providerSetting.activeAuthMode === 'oauth' && !!config.providerSetting.oauth?.accessToken
     const credentialManager = createOAuthCredentialManager(
@@ -64,7 +70,7 @@ export const claudeProvider = defineProvider({
 
     return new Claude(
       {
-        claudeApiKey: isOAuth ? '' : config.effectiveApiKey,
+        claudeApiKey: isOAuth ? '' : apiKey,
         claudeApiHost: config.formattedApiHost,
         model: config.model,
         temperature: config.settings.temperature,
@@ -75,7 +81,7 @@ export const claudeProvider = defineProvider({
         customFetch:
           isOAuth && credentialManager ? createBearerOAuthFetch(config.dependencies, credentialManager) : undefined,
         // OAuth uses SDK's built-in authToken for Bearer auth instead of apiKey
-        authToken: isOAuth ? config.effectiveApiKey : undefined,
+        authToken: isOAuth ? apiKey : undefined,
         isOAuth,
       },
       config.dependencies

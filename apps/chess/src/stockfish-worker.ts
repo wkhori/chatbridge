@@ -33,6 +33,11 @@ export async function initStockfish(): Promise<void> {
   })
 }
 
+export function setSkillLevel(level: number): void {
+  if (!worker || !isReady) return
+  worker.postMessage(`setoption name Skill Level value ${Math.max(0, Math.min(20, level))}`)
+}
+
 export async function getBestMove(
   fen: string,
   depth = 12,

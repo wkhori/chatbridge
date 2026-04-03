@@ -159,18 +159,25 @@ async function createAgent(tools: typeof LAUNCH_TOOLS, extraMessages: Array<{ ro
 const describeWithApi = HAS_API_KEY ? describe : describe.skip
 
 describeWithApi('ChatBridge LLM Evals (evalkit + Anthropic)', () => {
-  // Scenario 1, 5, 6, 7: Use launch tools (no active chess session)
-  it('passes launch-phase scenarios (1: discovery, 5: switching, 6: ambiguous, 7: refusal)', async () => {
+  // All YAML-driven evalkit scenarios (discovery, switching, ambiguous, refusal, extended)
+  it('passes all YAML-driven launch-phase scenarios', async () => {
     const agent = await createAgent(LAUNCH_TOOLS)
     const result = await runSuite({
       cases: path.join(__dirname, 'chatbridge-cases.yaml'),
       agent,
       name: 'ChatBridge Launch-Phase Evals',
-      concurrency: 2,
+      concurrency: 3,
     })
 
+    // Log per-case results for debugging
+    for (const c of result.cases) {
+      if (!c.passed) {
+        console.log(`  FAILED: ${c.id} — ${c.checks.summary}`)
+      }
+    }
+
     expect(result.failed).toBe(0)
-  }, 120_000)
+  }, 180_000)
 
   // Scenario 2: After chess is launched, AI should call start_game
   it('Eval 2: starts chess game when tools are available', async () => {
@@ -221,6 +228,61 @@ describeWithApi('ChatBridge LLM Evals (evalkit + Anthropic)', () => {
     const text = result.responseText.toLowerCase()
     expect(text).toMatch(/checkmate|won|win|victor|24|white/)
   }, 30_000)
+
+  // Scenario 5b: Chess hint — AI should call get_hint when asked
+  it('Eval 5b: uses get_hint tool when asked for help', async () => {
+    const agent = await createAgent(CHESS_SESSION_TOOLS, [
+      { role: 'assistant', content: 'Game started! You\'re playing as white.' },
+      { role: 'user', content: 'I played e4 and you responded with e5.' },
+      { role: 'assistant', content: 'Good moves so far! What would you like to do next?' },
+    ])
+
+    const result = await agent('I\'m stuck, can you suggest a good move?')
+
+    console.log(`  Eval 5b tools called: [${result.actualTools.join(', ')}]`)
+    expect(result.actualTools).toContain('app__chess__get_hint')
+  }, 30_000)
+
+  // Scenario 6b: Resign — AI should call resign when told to
+  it('Eval 6b: uses resign tool when player wants to quit', async () => {
+    const agent = await createAgent(CHESS_SESSION_TOOLS, [
+      { role: 'assistant', content: 'Game started! You\'re playing as white.' },
+      { role: 'user', content: 'I\'m losing badly, this is hopeless.' },
+      { role: 'assistant', content: 'Don\'t give up! Would you like a hint, or would you prefer to resign?' },
+    ])
+
+    const result = await agent('I resign, let\'s end this game')
+
+    console.log(`  Eval 6b tools called: [${result.actualTools.join(', ')}]`)
+    expect(result.actualTools).toContain('app__chess__resign')
+  }, 30_000)
+
+  // Scenario 7b: During chess session, refusal for unrelated query
+  it('Eval 7b: does not invoke chess tools for unrelated queries during session', async () => {
+    const agent = await createAgent(CHESS_SESSION_TOOLS, [
+      { role: 'assistant', content: 'Game started! You\'re playing as white.' },
+    ])
+
+    const result = await agent('What is the capital of France?')
+
+    console.log(`  Eval 7b tools: [${result.actualTools.join(', ')}], text: "${result.responseText.slice(0, 80)}..."`)
+    // Should NOT call any chess tools
+    const chessToolCalls = result.actualTools.filter((t) => t.startsWith('app__chess__'))
+    expect(chessToolCalls).toHaveLength(0)
+    expect(result.responseText.toLowerCase()).toContain('paris')
+  }, 30_000)
+
+  // Scenario 8: Make a move — AI should use make_move for explicit move
+  it('Eval 8: uses make_move for chess move during active game', async () => {
+    const agent = await createAgent(CHESS_SESSION_TOOLS, [
+      { role: 'assistant', content: 'Game started! You\'re playing as white. It\'s your turn.' },
+    ])
+
+    const result = await agent('I\'ll play e4')
+
+    console.log(`  Eval 8 tools called: [${result.actualTools.join(', ')}]`)
+    expect(result.actualTools).toContain('app__chess__make_move')
+  }, 30_000)
 })
 
 // --- Infrastructure tests (always run, no API key needed) ---
@@ -257,6 +319,65 @@ describe('ChatBridge Eval Infrastructure', () => {
   it('eval cases YAML is loadable', async () => {
     const { loadCases } = await import('evalkit')
     const cases = await loadCases(path.join(__dirname, 'chatbridge-cases.yaml'))
-    expect(cases.test_cases.length).toBeGreaterThanOrEqual(4)
+    expect(cases.test_cases.length).toBeGreaterThanOrEqual(11)
+  })
+
+  it('all eval cases have unique IDs', async () => {
+    const { loadCases } = await import('evalkit')
+    const cases = await loadCases(path.join(__dirname, 'chatbridge-cases.yaml'))
+    const ids = cases.test_cases.map((c: any) => c.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('all eval cases have queries and checks', async () => {
+    const { loadCases } = await import('evalkit')
+    const cases = await loadCases(path.join(__dirname, 'chatbridge-cases.yaml'))
+    for (const c of cases.test_cases) {
+      expect(c.query).toBeTruthy()
+      expect(c.checks).toBeDefined()
+    }
+  })
+
+  it('launch_app tool has valid enum of app IDs', () => {
+    const launchTool = LAUNCH_TOOLS.find((t) => t.name === 'launch_app')!
+    const appIds = launchTool.input_schema.properties.appId.enum
+    expect(appIds).toContain('chess')
+    expect(appIds).toContain('whiteboard')
+    expect(appIds).toContain('classroom')
+    expect(appIds).toHaveLength(3)
+  })
+
+  it('chess session tools cover full game lifecycle', () => {
+    const chessToolNames = CHESS_SESSION_TOOLS
+      .filter((t) => t.name.startsWith('app__chess__'))
+      .map((t) => t.name)
+    expect(chessToolNames).toContain('app__chess__start_game')
+    expect(chessToolNames).toContain('app__chess__make_move')
+    expect(chessToolNames).toContain('app__chess__get_hint')
+    expect(chessToolNames).toContain('app__chess__resign')
+    expect(chessToolNames).toContain('app__chess__get_status')
+  })
+
+  it('chess session launch_app excludes chess (already launched)', () => {
+    const launchTool = CHESS_SESSION_TOOLS.find((t) => t.name === 'launch_app')!
+    const appIds = launchTool.input_schema.properties.appId.enum
+    expect(appIds).not.toContain('chess')
+    expect(appIds).toContain('whiteboard')
+    expect(appIds).toContain('classroom')
+  })
+
+  it('system prompt mentions micro-apps and action suggestions', () => {
+    expect(SYSTEM_PROMPT).toContain('generate_micro_app')
+    expect(SYSTEM_PROMPT).toContain('suggest_actions')
+  })
+
+  it('system prompt mentions all three apps by name', () => {
+    expect(SYSTEM_PROMPT).toContain('Chess')
+    expect(SYSTEM_PROMPT).toContain('Whiteboard')
+    expect(SYSTEM_PROMPT).toContain('Classroom')
+  })
+
+  it('system prompt instructs not to invoke tools for unrelated queries', () => {
+    expect(SYSTEM_PROMPT).toMatch(/do not invoke|Do NOT invoke/i)
   })
 })

@@ -34,6 +34,8 @@ export class ChatBridgeSDK {
   private initialized = false
   private sessionId: string | null = null
   private restoredState: Record<string, unknown> | null = null
+  private readyDisplayName: string | null = null
+  private readyVersion: string | null = null
 
   constructor(appId: string) {
     this.appId = appId
@@ -43,6 +45,8 @@ export class ChatBridgeSDK {
   // --- Lifecycle ---
 
   sendReady(displayName: string, version: string): void {
+    this.readyDisplayName = displayName
+    this.readyVersion = version
     this.send('READY', { displayName, version })
   }
 
@@ -106,6 +110,8 @@ export class ChatBridgeSDK {
     const data = event.data
     if (data?.protocol !== PROTOCOL) return
 
+    console.warn(`[ChatBridgeSDK] 📥 Received ${data.type} from platform`)
+
     switch (data.type) {
       case 'INIT': {
         this.sessionId = data.payload?.sessionId || null
@@ -139,6 +145,13 @@ export class ChatBridgeSDK {
         // Subclasses should override to provide state
         break
       }
+      case 'REQUEST_READY': {
+        // Platform asked us to re-send READY (timing recovery)
+        if (this.readyDisplayName && this.readyVersion) {
+          this.send('READY', { displayName: this.readyDisplayName, version: this.readyVersion })
+        }
+        break
+      }
       case 'HEARTBEAT_PING': {
         this.send('HEARTBEAT_PONG', {})
         break
@@ -162,6 +175,7 @@ export class ChatBridgeSDK {
       timestamp: new Date().toISOString(),
       payload,
     }
+    console.warn(`[ChatBridgeSDK] 📤 Sending ${type} (appId: ${this.appId}, nonce: ${msg.nonce})`, window.parent === window ? '⚠️ NOT IN IFRAME' : '→ parent')
     window.parent.postMessage(msg, '*')
   }
 }

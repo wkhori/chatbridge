@@ -15,6 +15,7 @@ export const PlatformMessageType = {
   STATE_REQUEST: 'STATE_REQUEST',
   DESTROY: 'DESTROY',
   HEARTBEAT_PING: 'HEARTBEAT_PING',
+  REQUEST_READY: 'REQUEST_READY',
 } as const
 
 export const AppMessageType = {
@@ -223,7 +224,7 @@ export interface AppSession {
 
 export const RATE_LIMIT = 30 // messages per second
 export const MAX_MESSAGE_SIZE = 1_048_576 // 1MB
-export const READY_TIMEOUT = 15_000 // 15s
+export const READY_TIMEOUT = 30_000 // 30s — Railway cold starts can take 15-20s
 export const TOOL_TIMEOUT = 30_000 // 30s
 export const TOOL_TIMEOUT_LONG = 120_000 // 120s
 export const HEARTBEAT_INTERVAL = 10_000 // 10s

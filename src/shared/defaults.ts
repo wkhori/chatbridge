@@ -153,13 +153,13 @@ export function newConfigs(): Config {
 }
 
 export function getDefaultPrompt() {
-  return 'You are a helpful assistant.'
+  return 'You are a friendly AI tutor for K-12 students. Be encouraging, clear, and age-appropriate. You have access to interactive apps like Chess, a Whiteboard, and Google Classroom. Use tools when they help the student learn. Keep responses concise and engaging.'
 }
 
 export function chatSessionSettings(): SessionSettings {
   return {
-    provider: ModelProviderEnum.ChatboxAI,
-    modelId: 'chatboxai-4',
+    provider: ModelProviderEnum.Claude,
+    modelId: 'claude-sonnet-4-6',
     maxContextMessageCount: Number.MAX_SAFE_INTEGER,
   }
 }

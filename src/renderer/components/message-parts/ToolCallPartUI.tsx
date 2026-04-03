@@ -411,9 +411,102 @@ const GeneralToolCallUI: FC<{ part: MessageToolCallPart }> = ({ part }) => {
   )
 }
 
+// ─── ChatBridge App Tools (K-12 friendly) ──────────────────────────
+
+const CHATBRIDGE_HIDDEN_TOOLS = new Set(['suggest_actions', 'generate_micro_app'])
+
+const CHATBRIDGE_APP_TOOL_RE = /^app__([^_]+)__(.+)$/
+
+const APP_ICONS: Record<string, string> = {
+  chess: '♟️',
+  whiteboard: '🎨',
+  classroom: '📚',
+}
+
+function humanizeToolAction(toolName: string): string {
+  // "make_move" → "Making move", "get_board" → "Getting board"
+  const words = toolName.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+const ChatBridgeToolUI: FC<{ part: MessageToolCallPart; appId: string; action: string }> = ({ part, appId, action }) => {
+  const isLoading = part.state === 'call'
+  const isError = part.state === 'error'
+  const icon = APP_ICONS[appId] || '🔧'
+  const label = isLoading ? `${humanizeToolAction(action)}...` : humanizeToolAction(action)
+
+  return (
+    <Group gap={6} px={10} py={2} mb={4} style={{
+      borderRadius: 'var(--mantine-radius-xl)',
+      backgroundColor: isError
+        ? 'color-mix(in srgb, var(--chatbox-tint-error) 8%, transparent)'
+        : 'var(--chatbox-background-gray-secondary)',
+      display: 'inline-flex',
+    }}>
+      <Text size="xs">{icon}</Text>
+      <Text size="xs" fw={500} c={isError ? 'chatbox-error' : undefined} lh={1}>
+        {label}
+      </Text>
+      {isLoading ? (
+        <IconLoader size={11} className="animate-spin" color="var(--chatbox-tint-brand)" style={{ flexShrink: 0 }} />
+      ) : isError ? (
+        <IconCircleXFilled size={11} color="var(--chatbox-tint-error)" style={{ flexShrink: 0 }} />
+      ) : (
+        <IconCheck size={11} color="var(--chatbox-tint-success)" style={{ flexShrink: 0 }} />
+      )}
+    </Group>
+  )
+}
+
+const LaunchAppToolUI: FC<{ part: MessageToolCallPart }> = ({ part }) => {
+  const isLoading = part.state === 'call'
+  const isError = part.state === 'error'
+  const appId = (part.args as Record<string, unknown>)?.appId as string
+  const icon = APP_ICONS[appId] || '🚀'
+  const appName = appId ? appId.charAt(0).toUpperCase() + appId.slice(1) : 'App'
+
+  return (
+    <Group gap={6} px={10} py={2} mb={4} style={{
+      borderRadius: 'var(--mantine-radius-xl)',
+      backgroundColor: isError
+        ? 'color-mix(in srgb, var(--chatbox-tint-error) 8%, transparent)'
+        : 'var(--chatbox-background-gray-secondary)',
+      display: 'inline-flex',
+    }}>
+      <Text size="xs">{icon}</Text>
+      <Text size="xs" fw={500} c={isError ? 'chatbox-error' : undefined} lh={1}>
+        {isLoading ? `Opening ${appName}...` : `${appName} ready`}
+      </Text>
+      {isLoading ? (
+        <IconLoader size={11} className="animate-spin" color="var(--chatbox-tint-brand)" style={{ flexShrink: 0 }} />
+      ) : isError ? (
+        <IconCircleXFilled size={11} color="var(--chatbox-tint-error)" style={{ flexShrink: 0 }} />
+      ) : (
+        <IconCheck size={11} color="var(--chatbox-tint-success)" style={{ flexShrink: 0 }} />
+      )}
+    </Group>
+  )
+}
+
 // ─── Entry Point ────────────────────────────────────────────────────
 
 export const ToolCallPartUI: FC<{ part: MessageToolCallPart }> = ({ part }) => {
+  // Hide ChatBridge internal tools that render their own content parts
+  if (CHATBRIDGE_HIDDEN_TOOLS.has(part.toolName)) {
+    return null
+  }
+
+  // ChatBridge launch_app tool
+  if (part.toolName === 'launch_app') {
+    return <LaunchAppToolUI part={part} />
+  }
+
+  // ChatBridge app-specific tools (app__chess__make_move etc.)
+  const appToolMatch = CHATBRIDGE_APP_TOOL_RE.exec(part.toolName)
+  if (appToolMatch) {
+    return <ChatBridgeToolUI part={part} appId={appToolMatch[1]} action={appToolMatch[2]} />
+  }
+
   if (part.toolName === 'web_search') {
     return <WebSearchGroupUI parts={[part]} />
   }

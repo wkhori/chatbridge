@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { Loader, Text } from '@mantine/core'
 import { IconAlertTriangle, IconRefresh, IconWifi } from '@tabler/icons-react'
 import { appBridgeManager } from '@/packages/app-bridge'
@@ -10,18 +10,23 @@ interface AppIframeProps {
   title?: string
 }
 
-export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
+export const AppIframe = memo(function AppIframe({ appId, sessionId, title }: AppIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [iframeHeight, setIframeHeight] = useState(400)
+  const [iframeHeight, setIframeHeight] = useState(580)
   const [error, setError] = useState<string | null>(null)
   const [heartbeatWarning, setHeartbeatWarning] = useState(false)
 
   const manifest = appBridgeManager.getManifest(appId)
+  const [retryCount, setRetryCount] = useState(0)
+
+  // Check for stale session (destroyed or missing)
+  const session = appBridgeManager.getSession(sessionId)
+  const isStaleSession = !session || session.status === 'destroyed'
 
   // Attach bridge when iframe mounts
   useEffect(() => {
-    if (!manifest || !iframeRef.current) return
+    if (!manifest || !iframeRef.current || isStaleSession) return
 
     // View-only apps skip bridge setup entirely
     if (manifest.viewOnly) {
@@ -31,15 +36,39 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
 
     const cleanups: Array<() => void> = []
 
+    const existingBridge = appBridgeManager.getBridge(sessionId)
+    const isFirstAttach = !existingBridge
+
+    // Always ensure iframe src is set — React may create a new iframe DOM element
+    // on remount (StrictMode, virtualization) while the bridge object persists.
+    const iframeSrc = iframeRef.current.src
+    const needsSrc = !iframeSrc || iframeSrc === 'about:blank' || iframeSrc === ''
+
+    if (isFirstAttach) {
+      // First time: set src after bridge listener is attached to avoid race
+      iframeRef.current.src = 'about:blank'
+    }
+
+    // Idempotent: creates new bridge on first call, swaps iframe ref on subsequent
     appBridgeManager.attachBridge(sessionId, iframeRef.current)
 
-    // Track session status changes
-    const offSession = appBridgeManager.onSessionChange((session) => {
-      if (session.id !== sessionId) return
-      switch (session.status) {
+    if (needsSrc && iframeRef.current) {
+      iframeRef.current.src = manifest.url
+    }
+
+    // If bridge was already ready (e.g. StrictMode remount), update status immediately
+    const bridge = appBridgeManager.getBridge(sessionId)
+    if (bridge?.isReady) {
+      setStatus('ready')
+    }
+
+    // Track session status changes — only update state when it actually changes
+    const offSession = appBridgeManager.onSessionChange((s) => {
+      if (s.id !== sessionId) return
+      switch (s.status) {
         case 'ready':
         case 'active':
-          setStatus('ready')
+          setStatus((prev) => prev === 'ready' ? prev : 'ready')
           setHeartbeatWarning(false)
           break
         case 'error':
@@ -50,12 +79,8 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
     })
     cleanups.push(offSession)
 
-    // Once bridge exists, listen for heartbeat timeouts + UI_RESIZE via bridge events
-    const pollForBridge = setInterval(() => {
-      const bridge = appBridgeManager.getBridge(sessionId)
-      if (!bridge) return
-      clearInterval(pollForBridge)
-
+    // Listen for heartbeat timeouts + UI_RESIZE via bridge events
+    if (bridge) {
       const offHb = bridge.on('heartbeat_timeout', () => {
         setHeartbeatWarning(true)
       })
@@ -66,41 +91,77 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
         setIframeHeight(Math.min(Math.max(height, IFRAME_MIN_HEIGHT), IFRAME_MAX_HEIGHT))
       })
       cleanups.push(offResize)
-    }, BRIDGE_POLL_INTERVAL)
-    cleanups.push(() => clearInterval(pollForBridge))
+    } else {
+      // Poll for bridge to become available (first attach)
+      const pollForBridge = setInterval(() => {
+        const b = appBridgeManager.getBridge(sessionId)
+        if (!b) return
+        clearInterval(pollForBridge)
 
-    // Timeout for READY
-    const readyTimeout = setTimeout(() => {
-      setStatus((prev) => {
-        if (prev === 'loading') {
-          setError(`App failed to load within ${READY_TIMEOUT / 1000} seconds`)
-          return 'error'
-        }
-        return prev
-      })
-    }, READY_TIMEOUT)
-    cleanups.push(() => clearTimeout(readyTimeout))
+        const offHb = b.on('heartbeat_timeout', () => {
+          setHeartbeatWarning(true)
+        })
+        cleanups.push(offHb)
+
+        const offResize = b.on('ui_resize', (event) => {
+          const { height } = event.data as { height: number }
+          setIframeHeight(Math.min(Math.max(height, IFRAME_MIN_HEIGHT), IFRAME_MAX_HEIGHT))
+        })
+        cleanups.push(offResize)
+      }, BRIDGE_POLL_INTERVAL)
+      cleanups.push(() => clearInterval(pollForBridge))
+    }
+
+    // Timeout for READY (only on first attach)
+    if (isFirstAttach) {
+      const readyTimeout = setTimeout(() => {
+        setStatus((prev) => {
+          if (prev === 'loading') {
+            setError(`App failed to load within ${READY_TIMEOUT / 1000} seconds`)
+            return 'error'
+          }
+          return prev
+        })
+      }, READY_TIMEOUT)
+      cleanups.push(() => clearTimeout(readyTimeout))
+    }
 
     return () => {
       for (const fn of cleanups) fn()
-      appBridgeManager.detachBridge(sessionId)
+      // Don't destroy bridge on unmount — just detach iframe ref
+      // Bridge stays alive in manager for reconnection
+      appBridgeManager.detachIframe(sessionId)
     }
-  }, [manifest, appId, sessionId])
+  }, [manifest, appId, sessionId, retryCount, isStaleSession])
 
   const handleRetry = useCallback(() => {
+    // Destroy old bridge so we get a fresh start
+    appBridgeManager.detachBridge(sessionId)
     setStatus('loading')
     setError(null)
     setHeartbeatWarning(false)
-    if (iframeRef.current && manifest) {
-      iframeRef.current.src = manifest.url
-    }
-  }, [manifest])
+    setRetryCount((c) => c + 1)
+  }, [sessionId])
 
   if (!manifest) {
     return (
       <div className="flex items-center gap-2 p-3 rounded-lg bg-chatbox-background-gray-secondary text-chatbox-tint-secondary">
         <IconAlertTriangle size={16} />
         <Text size="sm">App &quot;{appId}&quot; not found in registry</Text>
+      </div>
+    )
+  }
+
+  // Stale session — show compact expired state
+  if (isStaleSession) {
+    return (
+      <div className="my-2 rounded-lg overflow-hidden border border-chatbox-border-primary">
+        <div className="flex items-center gap-2 px-3 py-2 bg-chatbox-background-gray-secondary">
+          {manifest.icon && <span className="text-sm">{manifest.icon}</span>}
+          <Text size="xs" className="text-chatbox-tint-secondary">
+            {title || manifest.name} — session ended
+          </Text>
+        </div>
       </div>
     )
   }
@@ -150,23 +211,22 @@ export function AppIframe({ appId, sessionId, title }: AppIframeProps) {
         </div>
       )}
 
-      {/* iframe */}
-      <iframe
-        ref={iframeRef}
-        src={manifest.url}
-        sandbox={
-          manifest.auth?.type === 'oauth2'
-            ? 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
-            : 'allow-scripts'
-        }
-        allow="accelerometer 'none'; camera 'none'; geolocation 'none'; microphone 'none'; clipboard-write 'none'"
-        className="w-full border-none"
-        style={{
-          height: `${iframeHeight}px`,
-          display: status === 'error' ? 'none' : 'block',
-        }}
-        title={manifest.name}
-      />
+      {/* iframe — always rendered so embedded components can measure dimensions */}
+      {status !== 'error' && (
+        <iframe
+          ref={iframeRef}
+          src={manifest.viewOnly ? manifest.url : undefined}
+          sandbox={
+            manifest.auth?.type === 'oauth2'
+              ? 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'
+              : 'allow-scripts allow-same-origin'
+          }
+          allow="accelerometer 'none'; camera 'none'; geolocation 'none'; microphone 'none'; clipboard-write 'none'"
+          className="w-full border-none"
+          style={{ height: `${iframeHeight}px` }}
+          title={manifest.name}
+        />
+      )}
     </div>
   )
-}
+})

@@ -240,7 +240,7 @@ const _Message: FC<Props> = (props) => {
       return false
     }
     return isContainRenderableCode(getMessageText(msg))
-  }, [msg.contentParts, msg.role, msg])
+  }, [msg.contentParts, msg.role])
 
   const trackWithSessionName = useCallback(
     async (event: string) => {
@@ -259,7 +259,7 @@ const _Message: FC<Props> = (props) => {
     trackWithSessionName(JK_EVENTS.PREVIEW_WEBPAGE_CLICK)
   }, [trackWithSessionName])
 
-  const contentParts = msg.contentParts || []
+  const contentParts = useMemo(() => msg.contentParts || [], [msg.contentParts])
 
   const groupedContentParts = useMemo(() => {
     const groups: Array<{ type: 'web_search_group'; parts: MessageToolCallPart[] } | (typeof contentParts)[number]> = []

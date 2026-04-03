@@ -2,7 +2,6 @@ import { v4 as uuid } from 'uuid'
 import {
   type AppMessageType,
   type AppSession,
-  AppSessionStatus,
   type BridgeMessageType,
   CompletionPayloadSchema,
   ErrorCode,
@@ -44,18 +43,6 @@ class SlidingWindowRateLimiter {
   }
 }
 
-// --- Nonce Tracker ---
-
-class NonceTracker {
-  private lastNonce = -1
-
-  validate(nonce: number): boolean {
-    if (nonce <= this.lastNonce) return false
-    this.lastNonce = nonce
-    return true
-  }
-}
-
 // --- Pending Tool Call ---
 
 interface PendingToolCall {
@@ -89,12 +76,12 @@ export class AppBridge {
   private iframe: HTMLIFrameElement | null = null
   private nonce = 0
   private rateLimiter = new SlidingWindowRateLimiter(RATE_LIMIT)
-  private nonceTracker = new NonceTracker()
   private pendingToolCalls = new Map<string, PendingToolCall>()
   private listeners = new Set<BridgeListener>()
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private missedHeartbeats = 0
   private destroyed = false
+  private _isReady = false
   private targetOrigin: string
 
   constructor(
@@ -117,14 +104,28 @@ export class AppBridge {
 
   // --- Public API ---
 
+  get isReady(): boolean {
+    return this._isReady
+  }
+
   attach(iframe: HTMLIFrameElement): void {
     this.iframe = iframe
     window.addEventListener('message', this.handleMessage)
   }
 
+  /** Swap the iframe reference without tearing down the bridge */
+  reattach(iframe: HTMLIFrameElement): void {
+    this.iframe = iframe
+  }
+
   detach(): void {
     window.removeEventListener('message', this.handleMessage)
     this.stopHeartbeat()
+    this.iframe = null
+  }
+
+  /** Detach iframe ref only — keeps message listener and heartbeat alive */
+  detachIframe(): void {
     this.iframe = null
   }
 
@@ -143,14 +144,24 @@ export class AppBridge {
 
   async waitForReady(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      // Periodically ask the app to re-send READY in case of timing issues
+      const retryTimer = setInterval(() => {
+        this.sendToPlatform('REQUEST_READY', {})
+      }, 2000)
+
+      const cleanup = () => {
+        clearTimeout(timer)
+        clearInterval(retryTimer)
         off()
+      }
+
+      const timer = setTimeout(() => {
+        cleanup()
         reject(new ChatBridgeError(ErrorCode.NOT_READY, `App ${this.session.appId} failed to send READY within ${READY_TIMEOUT}ms`))
       }, READY_TIMEOUT)
 
       const off = this.on('ready', () => {
-        clearTimeout(timer)
-        off()
+        cleanup()
         this.startHeartbeat()
         resolve()
       })
@@ -202,16 +213,25 @@ export class AppBridge {
   // --- Private ---
 
   private handleMessage = (event: MessageEvent): void => {
-    // Size check
-    const raw = JSON.stringify(event.data)
-    if (raw.length > MAX_MESSAGE_SIZE) return
+    // Size check — guard against circular refs or non-serializable data
+    let raw: string
+    try {
+      raw = JSON.stringify(event.data)
+    } catch {
+      return
+    }
+    if (!raw || raw.length > MAX_MESSAGE_SIZE) return
 
     // Protocol filter
-    if (event.data?.protocol !== PROTOCOL_ID) return
+    if (event.data?.protocol !== PROTOCOL_ID) {
+      return
+    }
 
     // Origin validation: sandboxed iframes send origin "null" (as string)
     const origin = event.origin
-    if (origin !== 'null' && !this.allowedOrigins.has(origin)) return
+    if (origin !== 'null' && !this.allowedOrigins.has(origin)) {
+      return
+    }
 
     // Parse envelope
     const parsed = MessageEnvelopeSchema.safeParse(event.data)
@@ -223,11 +243,9 @@ export class AppBridge {
     if (msg.appId !== this.session.appId) return
 
     // Rate limit
-    if (!this.rateLimiter.allow()) return
-
-    // Nonce check
-    if (!this.nonceTracker.validate(msg.nonce)) return
-
+    if (!this.rateLimiter.allow()) {
+      return
+    }
     this.routeMessage(msg)
   }
 
@@ -239,7 +257,14 @@ export class AppBridge {
       case 'READY': {
         const parsed = ReadyPayloadSchema.safeParse(payload)
         if (!parsed.success) break
+        const wasAlreadyReady = this._isReady
+        this._isReady = true
         this.emit('ready', parsed.data)
+        // If app was already ready, this is a re-READY from a remounted iframe.
+        // Re-send INIT so the new app instance receives its session state.
+        if (wasAlreadyReady) {
+          this.sendInit(this.session.state)
+        }
         break
       }
       case 'TOOL_REGISTER': {

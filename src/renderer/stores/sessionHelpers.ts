@@ -594,7 +594,12 @@ export function initEmptyChatSession(): Omit<Session, 'id'> {
             provider: settings.defaultChatModel.provider,
             modelId: settings.defaultChatModel.model,
           }
-        : lastUsedChatModel),
+        : lastUsedChatModel?.provider
+          ? lastUsedChatModel
+          : {
+              provider: defaults.chatSessionSettings().provider,
+              modelId: defaults.chatSessionSettings().modelId,
+            }),
     },
   }
   if (settings.defaultPrompt) {

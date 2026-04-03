@@ -41,10 +41,11 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
 
     for (const toolDef of session.tools) {
       const toolKey = `app__${session.appId}__${toolDef.name}`
+      // @ts-ignore - jsonSchema() with execute requires type assertion for dynamic schemas
       tools[toolKey] = tool({
         description: `[${manifest.name}] ${toolDef.description}`,
-        parameters: jsonSchema(toolDef.inputSchema as any),
-        execute: async (params: Record<string, unknown>, { toolCallId }) => {
+        inputSchema: jsonSchema(toolDef.inputSchema as any),
+        execute: async (params: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
           try {
             return await appBridgeManager.invokeTool(session.appId, toolDef.name, toolCallId, params)
           } catch (err) {
@@ -57,14 +58,51 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
     }
   }
 
-  // 2. launch_app meta-tool — launches any registered app that isn't already running
+  // 2. For manifests with pre-declared tools that DON'T have sessions yet,
+  //    generate tool entries that auto-launch the app on first invocation.
+  for (const [appId, manifest] of Object.entries(manifests)) {
+    if (appsWithSessions.has(appId) || !manifest.tools?.length) continue
+
+    for (const toolDef of manifest.tools) {
+      const toolKey = `app__${appId}__${toolDef.name}`
+      if (tools[toolKey]) continue // already registered by active session
+      // @ts-ignore - jsonSchema() with execute requires type assertion for dynamic schemas
+      tools[toolKey] = tool({
+        description: `[${manifest.name}] ${toolDef.description}`,
+        inputSchema: jsonSchema(toolDef.inputSchema as any),
+        execute: async (params: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
+          try {
+            // Auto-launch the app if no session exists
+            let entry = appBridgeManager.getBridgeByAppId(appId)
+            if (!entry || entry.session.status === 'destroyed' || entry.session.status === 'error') {
+              const newSession = appBridgeManager.createSession(manifest, opts?.conversationId || '')
+              opts?.onAppLaunched?.(appId, newSession.id)
+              await appBridgeManager.waitForBridge(appId, AUTO_LAUNCH_TIMEOUT)
+              entry = appBridgeManager.getBridgeByAppId(appId)
+            } else if (entry.session.status === 'loading') {
+              await appBridgeManager.waitForBridge(appId, AUTO_LAUNCH_TIMEOUT)
+              entry = appBridgeManager.getBridgeByAppId(appId)
+            }
+            return await appBridgeManager.invokeTool(appId, toolDef.name, toolCallId, params)
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            const code = err instanceof ChatBridgeError ? err.code : undefined
+            return { error: msg, ...(code && { code }) }
+          }
+        },
+      })
+    }
+  }
+
+  // 3. launch_app meta-tool — launches any registered app that isn't already running
   const launchableApps = Object.entries(manifests).filter(([id]) => !appsWithSessions.has(id))
   if (launchableApps.length > 0) {
+    // @ts-ignore - jsonSchema() with execute requires type assertion for dynamic schemas
     tools['launch_app'] = tool({
       description:
         `Launch a third-party app. Available apps: ${launchableApps.map(([, m]) => `${m.name} (id: "${m.id}")`).join(', ')}. ` +
         `After launching, the app will register its tools and you can use them.`,
-      parameters: jsonSchema({
+      inputSchema: jsonSchema({
         type: 'object',
         properties: {
           appId: {
@@ -101,10 +139,11 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
   }
 
   // 3. suggest_actions — AI generates contextual action buttons
+  // @ts-ignore - jsonSchema() with execute requires type assertion for dynamic schemas
   tools['suggest_actions'] = tool({
     description:
       'Suggest contextual action buttons for the user. Use after responding to show relevant next steps. Each suggestion becomes a clickable button.',
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: 'object',
       properties: {
         suggestions: {
@@ -133,10 +172,11 @@ export function getAppTools(opts?: AppToolsOptions): ToolSet {
 
   // 4. generate_micro_app — AI creates interactive widgets mid-conversation
   const blocklist = [/\beval\s*\(/, /\bnew\s+Function\s*\(/, /\bfetch\s*\(/, /\bXMLHttpRequest\b/, /\bWebSocket\b/, /\bimportScripts\b/]
+  // @ts-ignore - jsonSchema() with execute requires type assertion for dynamic schemas
   tools['generate_micro_app'] = tool({
     description:
       'Generate an interactive micro-app widget. Use for quizzes, visualizers, calculators, or mini-games. Output self-contained HTML/CSS/JS.',
-    parameters: jsonSchema({
+    inputSchema: jsonSchema({
       type: 'object',
       properties: {
         html: { type: 'string', description: 'Complete self-contained HTML document with inline CSS and JS. Must work without external dependencies.' },
@@ -181,9 +221,11 @@ export function getAppToolInstructions(): string {
   instructions += 'After responding, use the **suggest_actions** tool to show 2-4 relevant action buttons. '
   instructions += 'Suggestions should be contextual next steps the user might want. Examples:\n'
   instructions += '- After greeting: suggest opening available apps\n'
-  instructions += '- During a chess game: suggest "Get Hint", "View Status", "Resign"\n'
+  instructions += '- During a chess game: suggest "Get Hint", "Resign", or "New Game (Easy/Medium/Hard)" (with start_game + difficulty param). NEVER suggest individual moves as buttons — players make moves directly on the board.\n'
+  instructions += '- After a chess game ends: ALWAYS suggest new game options with different difficulties: "New Game (Easy)", "New Game (Medium)", "New Game (Hard)". Include the difficulty param in args.\n'
   instructions += '- After explaining a concept: suggest "Draw on Whiteboard", "Practice with Quiz"\n'
-  instructions += 'Each suggestion needs: label (short), toolName (the tool to call), args (tool arguments), and optional icon emoji.\n\n'
+  instructions += 'Each suggestion needs: label (short), toolName (the tool to call), args (tool arguments), and optional icon emoji.\n'
+  instructions += 'IMPORTANT: Do NOT suggest "View Status" or "Make Move" buttons. The board UI handles moves and the game state updates automatically.\n\n'
 
   instructions += '### Generative Micro-Apps\n'
   instructions += 'You can create interactive widgets mid-conversation using **generate_micro_app**.\n'
@@ -234,16 +276,23 @@ export function getAppToolInstructions(): string {
     instructions += '\n'
   }
 
-  // Available but not launched — tell AI to use launch_app
+  // Available but not launched — show pre-declared tools (auto-launches on first call)
   for (const [appId, manifest] of Object.entries(manifests)) {
     if (activeAppIds.has(appId)) continue
     const tier = appRouter.getTier(appId)
     if (tier === 'none') continue
 
-    instructions += `### ${manifest.name} (available — use launch_app to start)\n`
+    instructions += `### ${manifest.name} (available)\n`
     instructions += `${manifest.description}\n`
-    instructions += `Keywords: ${manifest.keywords?.join(', ') || 'none'}\n`
-    instructions += `To use: call launch_app with appId="${appId}", then use the tools it registers.\n\n`
+    if (manifest.tools && manifest.tools.length > 0) {
+      instructions += 'Tools (calling any tool auto-launches the app):\n'
+      for (const t of manifest.tools) {
+        instructions += `- **app__${appId}__${t.name}**: ${t.description}\n`
+      }
+    } else {
+      instructions += `To use: call launch_app with appId="${appId}", then use the tools it registers.\n`
+    }
+    instructions += '\n'
   }
 
   return instructions

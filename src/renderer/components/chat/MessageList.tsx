@@ -111,7 +111,10 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
     () => currentSession && getCurrentThreadHistoryHash(currentSession),
     [currentSession]
   )
-  const currentMessageList = useMemo(() => getAllMessageList(currentSession), [currentSession])
+  const currentMessageList = useMemo(
+    () => getAllMessageList(currentSession).filter((m) => m.role !== 'system'),
+    [currentSession]
+  )
 
   const latestSummaryMessageId = useMemo(() => {
     for (let i = currentMessageList.length - 1; i >= 0; i--) {
@@ -343,12 +346,19 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
 
   const platformType = useAtomValue(platformTypeAtom)
 
+  // Extract stable session properties to avoid re-creating renderMessageBlock on every session update
+  const sessionId = currentSession.id
+  const sessionType = currentSession.type || 'chat'
+  const assistantAvatarKey = currentSession.assistantAvatarKey
+  const sessionPicUrl = currentSession.picUrl
+  const messageForksHash = currentSession.messageForksHash
+
   const renderMessageBlock = useCallback(
     (msg: SessionMessage, options: { isFirstItem: boolean; isLastItem: boolean }) => {
       return (
         <Stack key={msg.id} gap={0} pt={msg.role === 'user' ? 4 : 0}>
           {currentThreadHash[msg.id] && (
-            <ThreadLabel thread={currentThreadHash[msg.id]} sessionId={currentSession.id} />
+            <ThreadLabel thread={currentThreadHash[msg.id]} sessionId={sessionId} />
           )}
           <ErrorBoundary name={`message-item`}>
             {msg.isSummary ? (
@@ -356,32 +366,32 @@ const MessageList = forwardRef<MessageListRef, MessageListProps>((props, ref) =>
                 msg={msg}
                 className={options.isFirstItem ? 'pt-4' : options.isLastItem ? '!pb-4' : ''}
                 isLatestSummary={msg.id === latestSummaryMessageId}
-                onDelete={() => removeMessage(currentSession.id, msg.id)}
-                sessionId={currentSession.id}
+                onDelete={() => removeMessage(sessionId, msg.id)}
+                sessionId={sessionId}
               />
             ) : (
               <Message
                 id={msg.id}
                 msg={msg}
-                sessionId={currentSession.id}
-                sessionType={currentSession.type || 'chat'}
+                sessionId={sessionId}
+                sessionType={sessionType}
                 className={options.isFirstItem ? 'pt-4' : options.isLastItem ? '!pb-4' : ''}
                 collapseThreshold={msg.role === 'system' ? 150 : undefined}
                 buttonGroup={options.isLastItem && msg.role === 'assistant' ? 'always' : 'auto'}
-                assistantAvatarKey={currentSession.assistantAvatarKey}
-                sessionPicUrl={currentSession.picUrl}
+                assistantAvatarKey={assistantAvatarKey}
+                sessionPicUrl={sessionPicUrl}
               />
             )}
           </ErrorBoundary>
-          {currentSession.messageForksHash?.[msg.id] && currentSession.messageForksHash[msg.id].lists.length > 1 && (
+          {messageForksHash?.[msg.id] && messageForksHash[msg.id].lists.length > 1 && (
             <Flex justify="flex-end" pr="md" mr="md" className="self-end">
-              <ForkNav sessionId={currentSession.id} msgId={msg.id} forks={currentSession.messageForksHash[msg.id]} />
+              <ForkNav sessionId={sessionId} msgId={msg.id} forks={messageForksHash[msg.id]} />
             </Flex>
           )}
         </Stack>
       )
     },
-    [currentSession, currentThreadHash, latestSummaryMessageId]
+    [sessionId, sessionType, assistantAvatarKey, sessionPicUrl, messageForksHash, currentThreadHash, latestSummaryMessageId]
   )
 
   useImperativeHandle(ref, () => ({

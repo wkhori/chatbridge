@@ -1,11 +1,15 @@
 import { sentryVitePlugin } from '@sentry/vite-plugin'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import react from '@vitejs/plugin-react'
+import dotenv from 'dotenv'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import path, { resolve } from 'path'
 import { visualizer } from 'rollup-plugin-visualizer'
 import type { Plugin } from 'vite'
 import packageJson from './release/app/package.json'
+
+// Load .env so env vars are available in define blocks
+dotenv.config()
 /**
  * Vite plugin to inject <base href="/"> for web builds
  * This ensures relative paths resolve correctly for SPA routes like /session/xxx
@@ -145,6 +149,7 @@ export default defineConfig(({ mode }) => {
         'process.env.CHATBOX_BUILD_CHANNEL': JSON.stringify(process.env.CHATBOX_BUILD_CHANNEL || 'unknown'),
         'process.env.USE_LOCAL_API': JSON.stringify(process.env.USE_LOCAL_API || ''),
         'process.env.USE_BETA_API': JSON.stringify(process.env.USE_BETA_API || ''),
+        'process.env.VITE_ANTHROPIC_API_KEY': JSON.stringify(process.env.VITE_ANTHROPIC_API_KEY || ''),
       },
     },
     preload: {
@@ -268,6 +273,7 @@ export default defineConfig(({ mode }) => {
         'process.env.CHATBOX_BUILD_CHANNEL': JSON.stringify(process.env.CHATBOX_BUILD_CHANNEL || 'unknown'),
         'process.env.USE_LOCAL_API': JSON.stringify(process.env.USE_LOCAL_API || ''),
         'process.env.USE_BETA_API': JSON.stringify(process.env.USE_BETA_API || ''),
+        'process.env.VITE_ANTHROPIC_API_KEY': JSON.stringify(process.env.VITE_ANTHROPIC_API_KEY || ''),
       },
       optimizeDeps: {
         include: ['mermaid'],
