@@ -30,7 +30,10 @@ export const useProviders = () => {
               models: chatboxAIModels,
             }
           } else if (
-            (!p.isCustom && (providerSettings?.apiKey || isUsingOAuth(providerSettings || {}, platform.type))) ||
+            (!p.isCustom &&
+              (providerSettings?.apiKey ||
+                isUsingOAuth(providerSettings || {}, platform.type) ||
+                p.id === ModelProviderEnum.Claude)) ||
             ((p.isCustom || p.id === ModelProviderEnum.Ollama || p.id === ModelProviderEnum.LMStudio) &&
               providerSettings?.models?.length)
           ) {
