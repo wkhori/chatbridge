@@ -19,11 +19,12 @@ RUN pnpm run --if-present postinstall 2>/dev/null || true
 # Copy source
 COPY . .
 
-# Accept build-time env vars for Vite static replacement
+# Write .env from build args so Vite bakes the API key into the bundle
 ARG VITE_ANTHROPIC_API_KEY
-ENV VITE_ANTHROPIC_API_KEY=$VITE_ANTHROPIC_API_KEY
+RUN echo "VITE_ANTHROPIC_API_KEY=${VITE_ANTHROPIC_API_KEY}" > .env
 
-# Build web
+# Build web (Vite reads .env + process.env)
+ENV VITE_ANTHROPIC_API_KEY=$VITE_ANTHROPIC_API_KEY
 RUN pnpm build:web
 
 # Serve with lightweight static server
