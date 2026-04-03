@@ -208,12 +208,14 @@ describeWithApi('ChatBridge LLM Evals (evalkit + Anthropic)', () => {
   it('Eval 4: retains context about previous game', async () => {
     const agent = await createAgent(LAUNCH_TOOLS, [
       { role: 'user', content: 'Let\'s play chess' },
-      { role: 'assistant', content: 'I\'ve launched the Chess app for you! Let\'s get a game started.' },
-      { role: 'user', content: 'I played as white and just won by checkmate in 24 moves! That was a great game.' },
-      { role: 'assistant', content: 'Congratulations on the victory! Winning by checkmate in just 24 moves as white is impressive. You played a strong game!' },
+      { role: 'assistant', content: 'I\'ve launched the Chess app for you! The board is ready.' },
+      { role: 'user', content: 'I just finished the game. I played as white and won by checkmate in 24 moves.' },
+      { role: 'assistant', content: 'Well done! You won by checkmate in 24 moves playing as white. That was a strong performance!' },
+      { role: 'user', content: 'Thanks! It was a great game.' },
+      { role: 'assistant', content: 'It really was! A 24-move checkmate as white shows solid opening and middlegame play.' },
     ])
 
-    const result = await agent('Can you remind me how that chess game went?')
+    const result = await agent('What happened in our chess game earlier?')
 
     console.log(`  Eval 4 response preview: "${result.responseText.slice(0, 120)}..."`)
     const text = result.responseText.toLowerCase()

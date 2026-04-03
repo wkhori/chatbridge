@@ -22,6 +22,7 @@ export enum ModelProviderEnum {
   MiniMax = 'minimax',
   MiniMaxCN = 'minimax-cn',
   Moonshot = 'moonshot',
+  MoonshotCN = 'moonshot-cn',
   Qwen = 'qwen',
   QwenPortal = 'qwen-portal',
   Custom = 'custom',
