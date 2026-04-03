@@ -52,7 +52,7 @@ export const claudeProvider = defineProvider({
     // Fall back to system API key so the app works out of the box for K-12 users
     const apiKey: string =
       (config as any).effectiveApiKey ||
-      (typeof process !== 'undefined' && process.env?.VITE_ANTHROPIC_API_KEY) ||
+      process.env.VITE_ANTHROPIC_API_KEY ||
       ''
 
     // Anthropic OAuth tokens (sk-ant-oat-*) require Bearer auth + beta header + system passphrase
